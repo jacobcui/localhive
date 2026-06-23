@@ -1,0 +1,17 @@
+# Python virtual environment
+.venv/
+
+# Local configuration (override config.mk settings)
+config.local.mk
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

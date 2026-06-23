@@ -13,6 +13,10 @@ VENV_DIR := .venv
 PYTHON := $(VENV_DIR)/bin/python
 PIP := $(VENV_DIR)/bin/pip
 
+# Load configuration
+-include config.mk
+-include config.local.mk
+
 .DEFAULT_GOAL := help
 
 .PHONY: list serve serve-from-list help install venv venv-list
@@ -94,18 +98,19 @@ endif
 		echo "Error: llama-server binary not found."; \
 		echo "Install via:"; \
 		echo "  - macOS:  brew install llama.cpp"; \
-		echo "  - Linux:  conda install -c conda-forge llama-cpp-python"; \
+		echo "  - Linux:  pip install llama-cpp-python"; \
 		exit 1; \
 	fi
 	@echo "Starting llama server with model: $(MODEL)"
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) -ngl 999 -c 131072 -n 8192 --port 8000
+	@echo "  GPU layers: $(GPU_LAYERS), Context: $(CTX_SIZE), Max tokens: $(MAX_TOKENS), Port: $(PORT)"
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $(PORT)
 
 serve-from-list:
 	@if ! command -v llama-server >/dev/null 2>&1; then \
 		echo "Error: llama-server binary not found."; \
 		echo "Install via:"; \
 		echo "  - macOS:  brew install llama.cpp"; \
-		echo "  - Linux:  conda install -c conda-forge llama-cpp-python"; \
+		echo "  - Linux:  pip install llama-cpp-python"; \
 		exit 1; \
 	fi
 	@echo "Available models:"
@@ -115,7 +120,7 @@ serve-from-list:
 	if [ -z "$$choice" ]; then echo "No selection made"; exit 1; fi; \
 	model=$$(ls -1 $(MODELS_DIR) 2>/dev/null | sed -n "$${choice}p"); \
 	if [ -z "$$model" ]; then echo "Invalid selection: $$choice"; exit 1; fi; \
-	read -p "Enter port (default: 8000): " port; \
-	if [ -z "$$port" ]; then port=8000; fi; \
+	read -p "Enter port (default: $(PORT)): " port; \
+	if [ -z "$$port" ]; then port=$(PORT); fi; \
 	echo "Starting llama server with model: $$model on port $$port"; \
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model -ngl 999 -c 131072 -n 8192 --port $$port
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $$port
