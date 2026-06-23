@@ -1,7 +1,8 @@
 # Python virtual environment
 .venv/
 
-# Python
+# Python build artifacts
+*.egg-info/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -12,3 +13,6 @@ __pycache__/
 .vscode/
 *.swp
 *.swo
+
+# Qwen
+.qwen/
