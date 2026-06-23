@@ -18,7 +18,7 @@ PIP := $(VENV_DIR)/bin/pip
 CONFIG_FILE := server.conf
 
 # Load configuration file content (strip comments and empty lines)
-SERVER_ARGS := $(shell grep -v '^#' $(CONFIG_FILE) 2>/dev/null | grep -v '^$$')
+SERVER_ARGS := $(shell grep -v '^#' $(CONFIG_FILE) 2>/dev/null | grep '.')
 
 .DEFAULT_GOAL := help
 
