@@ -42,8 +42,10 @@ install: $(VENV_DIR)/bin/activate
 	@if ! command -v llama-server >/dev/null 2>&1; then \
 		echo ""; \
 		echo "Warning: llama-server binary not found in PATH."; \
-		echo "Install it via conda: conda install -c conda-forge llama-cpp-python"; \
-		echo "Or the pip package may include it depending on your platform."; \
+		echo "Install it via:"; \
+		echo "  - macOS:  brew install llama.cpp"; \
+		echo "  - Linux:  conda install -c conda-forge llama-cpp-python"; \
+		echo "The pip package may include the binary depending on your platform."; \
 	fi
 
 $(VENV_DIR)/bin/activate:
@@ -71,7 +73,9 @@ ifndef MODEL
 endif
 	@if ! command -v llama-server >/dev/null 2>&1; then \
 		echo "Error: llama-server binary not found."; \
-		echo "Install via: conda install -c conda-forge llama-cpp-python"; \
+		echo "Install via:"; \
+		echo "  - macOS:  brew install llama.cpp"; \
+		echo "  - Linux:  conda install -c conda-forge llama-cpp-python"; \
 		exit 1; \
 	fi
 	@echo "Starting llama server with model: $(MODEL)"
@@ -80,7 +84,9 @@ endif
 serve-from-list:
 	@if ! command -v llama-server >/dev/null 2>&1; then \
 		echo "Error: llama-server binary not found."; \
-		echo "Install via: conda install -c conda-forge llama-cpp-python"; \
+		echo "Install via:"; \
+		echo "  - macOS:  brew install llama.cpp"; \
+		echo "  - Linux:  conda install -c conda-forge llama-cpp-python"; \
 		exit 1; \
 	fi
 	@echo "Available models:"
