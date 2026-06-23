@@ -4,7 +4,6 @@
 #
 # Configuration:
 #   - server.conf: llama-server arguments (edit this file)
-#   - config.local.mk: local overrides (PORT, etc.) - gitignored
 #
 # Installation:
 #   - macOS: brew install llama.cpp
@@ -20,12 +19,6 @@ CONFIG_FILE := server.conf
 
 # Load configuration file content (strip comments and empty lines)
 SERVER_ARGS := $(shell grep -v '^#' $(CONFIG_FILE) 2>/dev/null | grep -v '^$$')
-
-# Load optional local overrides
--include config.local.mk
-
-# Default port (can be overridden in config.local.mk)
-PORT ?= 8000
 
 .DEFAULT_GOAL := help
 
@@ -112,9 +105,8 @@ endif
 		exit 1; \
 	fi
 	@echo "Starting llama server with model: $(MODEL)"
-	@echo "  Port: $(PORT)"
 	@echo "  Args: $(SERVER_ARGS)"
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) --port $(PORT) $(SERVER_ARGS)
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) $(SERVER_ARGS)
 
 serve-from-list:
 	@if ! command -v llama-server >/dev/null 2>&1; then \
@@ -131,11 +123,5 @@ serve-from-list:
 	if [ -z "$$choice" ]; then echo "No selection made"; exit 1; fi; \
 	model=$$(ls -1 $(MODELS_DIR) 2>/dev/null | sed -n "$${choice}p"); \
 	if [ -z "$$model" ]; then echo "Invalid selection: $$choice"; exit 1; fi; \
-	read -p "Enter port (default: $(PORT)): " port; \
-	if [ -z "$$port" ]; then port=$(PORT); fi; \
-	if [ "$$port" != "$(PORT)" ]; then \
-		echo "PORT ?= $$port" > config.local.mk; \
-		echo "Saved port $$port to config.local.mk"; \
-	fi; \
-	echo "Starting llama server with model: $$model on port $$port"; \
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model --port $$port $(SERVER_ARGS)
+	echo "Starting llama server with model: $$model"; \
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model $(SERVER_ARGS)

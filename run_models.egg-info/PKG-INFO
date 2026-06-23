@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: run-models
+Version: 0.1.0
+Summary: Helper for running llama models
+Requires-Python: >=3.10
+Requires-Dist: llama-cpp-python>=0.3.0
+Requires-Dist: uvicorn>=0.23.0
+Requires-Dist: fastapi>=0.100.0
+Requires-Dist: sse-starlette>=1.6.0
+Requires-Dist: starlette-context>=0.3.0
+Requires-Dist: anyio>=4.0.0
+Requires-Dist: pydantic-settings>=2.0.0
