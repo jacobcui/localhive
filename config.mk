@@ -8,7 +8,9 @@ MAX_TOKENS ?= 8192
 
 # Server parameters
 PORT ?= 8000
+N_PARALLEL ?= 1
 
 # To override, create config.local.mk with your values:
 #   GPU_LAYERS ?= 90
 #   PORT ?= 9000
+#   N_PARALLEL ?= 4

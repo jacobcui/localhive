@@ -101,13 +101,15 @@ endif
 		echo "  - Linux:  pip install llama-cpp-python"; \
 		exit 1; \
 	fi
-	@if [ "$(PORT)" != "8000" ]; then \
+	@if [ "$(PORT)" != "8000" ] || [ "$(N_PARALLEL)" != "1" ]; then \
 		echo "PORT ?= $(PORT)" > config.local.mk; \
-		echo "Saved port $(PORT) to config.local.mk"; \
+		echo "N_PARALLEL ?= $(N_PARALLEL)" >> config.local.mk; \
+		echo "Saved config to config.local.mk"; \
 	fi
 	@echo "Starting llama server with model: $(MODEL)"
-	@echo "  GPU layers: $(GPU_LAYERS), Context: $(CTX_SIZE), Max tokens: $(MAX_TOKENS), Port: $(PORT)"
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $(PORT)
+	@echo "  GPU layers: $(GPU_LAYERS), Context: $(CTX_SIZE), Max tokens: $(MAX_TOKENS)"
+	@echo "  Port: $(PORT), Parallel: $(N_PARALLEL)"
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $(PORT) -np $(N_PARALLEL)
 
 serve-from-list:
 	@if ! command -v llama-server >/dev/null 2>&1; then \
@@ -126,9 +128,10 @@ serve-from-list:
 	if [ -z "$$model" ]; then echo "Invalid selection: $$choice"; exit 1; fi; \
 	read -p "Enter port (default: $(PORT)): " port; \
 	if [ -z "$$port" ]; then port=$(PORT); fi; \
-	if [ "$$port" != "$(PORT)" ]; then \
+	if [ "$$port" != "$(PORT)" ] || [ "$(N_PARALLEL)" != "1" ]; then \
 		echo "PORT ?= $$port" > config.local.mk; \
-		echo "Saved port $$port to config.local.mk"; \
+		echo "N_PARALLEL ?= $(N_PARALLEL)" >> config.local.mk; \
+		echo "Saved config to config.local.mk"; \
 	fi; \
 	echo "Starting llama server with model: $$model on port $$port"; \
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $$port
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $$port -np $(N_PARALLEL)
