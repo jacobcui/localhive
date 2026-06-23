@@ -1,6 +1,10 @@
 # Makefile for managing llama models
-# Uses llama-server binary (from pip or conda llama-cpp-python package)
+# Uses llama-server binary from llama.cpp
 # Models are stored in ~/models directory
+#
+# Installation:
+#   - macOS: brew install llama.cpp
+#   - Linux: pip install llama-cpp-python
 
 # Find llama-server binary (from pip or conda)
 LLAMA_SERVER := $(shell command -v llama-server 2>/dev/null)
@@ -36,17 +40,32 @@ endif
 	@echo "Virtual environment created at $(VENV_DIR)"
 	@echo "Run 'make install' to install dependencies from pyproject.toml"
 
-install: $(VENV_DIR)/bin/activate
-	@echo "Installing project dependencies..."
-	$(PIP) install -e .
-	@if ! command -v llama-server >/dev/null 2>&1; then \
-		echo ""; \
-		echo "Warning: llama-server binary not found in PATH."; \
-		echo "Install it via:"; \
-		echo "  - macOS:  brew install llama.cpp"; \
-		echo "  - Linux:  conda install -c conda-forge llama-cpp-python"; \
-		echo "The pip package may include the binary depending on your platform."; \
+install:
+	@echo "Installing llama.cpp and Python dependencies..."
+	@OS=$$(uname -s); \
+	if [ "$$OS" = "Darwin" ]; then \
+		echo "macOS detected. Installing llama.cpp via Homebrew..."; \
+		if ! command -v brew >/dev/null 2>&1; then \
+			echo "Homebrew not found. Installing Homebrew..."; \
+			/bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; \
+		fi; \
+		brew install llama.cpp; \
+	elif [ "$$OS" = "Linux" ]; then \
+		echo "Linux detected. Installing llama-cpp-python via pip..."; \
+		pip install llama-cpp-python; \
+	else \
+		echo "Unsupported OS: $$OS"; \
+		exit 1; \
 	fi
+	@echo ""
+	@echo "Setting up Python virtual environment..."
+	@if [ ! -d $(VENV_DIR) ]; then $(MAKE) venv; fi
+	@echo ""
+	@echo "Installing Python dependencies..."
+	$(PIP) install -e .
+	@echo ""
+	@echo "Verifying installation..."
+	@llama-server --version || echo "Warning: llama-server not found in PATH"
 
 $(VENV_DIR)/bin/activate:
 	@echo "Virtual environment not found. Creating..."
@@ -57,7 +76,7 @@ help:
 	@echo "  venv-list        List available Python versions"
 	@echo "  venv             Create Python virtual environment (default python3)"
 	@echo "  venv-PYTHON PYTHON_VER=X Create venv with specific Python version"
-	@echo "  install          Create venv (if needed) and install llama-cpp-python"
+	@echo "  install          Install llama.cpp (brew/pip) and Python dependencies"
 	@echo "  list             List available models in $(MODELS_DIR)"
 	@echo "  serve MODEL=<name>  Start serving a specific model"
 	@echo "  serve-from-list  Interactive menu to select and serve a model"
