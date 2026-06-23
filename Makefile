@@ -24,7 +24,7 @@ venv:
 	@echo "Creating virtual environment..."
 	python3 -m venv $(VENV_DIR)
 	@echo "Virtual environment created at $(VENV_DIR)"
-	@echo "Run 'make install' to install llama-cpp-python"
+	@echo "Run 'make install' to install dependencies from pyproject.toml"
 
 venv-PYTHON:
 ifndef PYTHON_VER
@@ -33,11 +33,11 @@ endif
 	@echo "Creating virtual environment with $(PYTHON_VER)..."
 	$(PYTHON_VER) -m venv $(VENV_DIR)
 	@echo "Virtual environment created at $(VENV_DIR)"
-	@echo "Run 'make install' to install llama-cpp-python"
+	@echo "Run 'make install' to install dependencies from pyproject.toml"
 
 install: $(VENV_DIR)/bin/activate
-	@echo "Installing llama-cpp-python..."
-	$(PIP) install llama-cpp-python
+	@echo "Installing project dependencies..."
+	$(PIP) install -e .
 
 $(VENV_DIR)/bin/activate:
 	@echo "Virtual environment not found. Creating..."
