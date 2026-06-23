@@ -63,7 +63,7 @@ ifndef MODEL
 	$(error MODEL is not set. Usage: make serve MODEL=<model_name>)
 endif
 	@echo "Starting llama server with model: $(MODEL)"
-	$(PYTHON) -m llama_cpp.server --model $(MODELS_DIR)/$(MODEL) --n_gpu_layers 999 --n_ctx 131072
+	$(PYTHON) -m llama_cpp.server --model $(MODELS_DIR)/$(MODEL) --n_gpu_layers 999 --n_ctx 131072 --port 8000
 
 serve-from-list:
 	@echo "Available models:"
@@ -73,5 +73,7 @@ serve-from-list:
 	if [ -z "$$choice" ]; then echo "No selection made"; exit 1; fi; \
 	model=$$(ls -1 $(MODELS_DIR) 2>/dev/null | sed -n "$${choice}p"); \
 	if [ -z "$$model" ]; then echo "Invalid selection: $$choice"; exit 1; fi; \
-	echo "Starting llama server with model: $$model"; \
-	$(PYTHON) -m llama_cpp.server --model $(MODELS_DIR)/$$model --n_gpu_layers 999 --n_ctx 131072
+	read -p "Enter port (default: 8000): " port; \
+	if [ -z "$$port" ]; then port=8000; fi; \
+	echo "Starting llama server with model: $$model on port $$port"; \
+	$(PYTHON) -m llama_cpp.server --model $(MODELS_DIR)/$$model --n_gpu_layers 999 --n_ctx 131072 --port $$port
