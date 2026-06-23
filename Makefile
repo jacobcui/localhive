@@ -1,8 +1,8 @@
 # Makefile for managing llama models
-# Helper for running llama app (@/home/jacob/miniforge3/bin/llama)
+# Uses native llama-server binary (from conda: llama-cpp-python)
 # Models are stored in ~/models directory
 
-LLAMA := /home/jacob/miniforge3/bin/llama
+LLAMA_SERVER := llama-server
 MODELS_DIR := $(HOME)/models
 VENV_DIR := .venv
 PYTHON := $(VENV_DIR)/bin/python
@@ -63,7 +63,7 @@ ifndef MODEL
 	$(error MODEL is not set. Usage: make serve MODEL=<model_name>)
 endif
 	@echo "Starting llama server with model: $(MODEL)"
-	$(PYTHON) -m llama_cpp.server --model $(MODELS_DIR)/$(MODEL) --n_gpu_layers 999 --n_ctx 131072 --port 8000
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) -ngl 999 -c 131072 -n 8192 --port 8000
 
 serve-from-list:
 	@echo "Available models:"
@@ -76,4 +76,4 @@ serve-from-list:
 	read -p "Enter port (default: 8000): " port; \
 	if [ -z "$$port" ]; then port=8000; fi; \
 	echo "Starting llama server with model: $$model on port $$port"; \
-	$(PYTHON) -m llama_cpp.server --model $(MODELS_DIR)/$$model --n_gpu_layers 999 --n_ctx 131072 --port $$port
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model -ngl 999 -c 131072 -n 8192 --port $$port
