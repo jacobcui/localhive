@@ -2,6 +2,10 @@
 # Uses llama-server binary from llama.cpp
 # Models are stored in ~/models directory
 #
+# Configuration:
+#   - server.conf: llama-server arguments (edit this file)
+#   - config.local.mk: local overrides (PORT, etc.) - gitignored
+#
 # Installation:
 #   - macOS: brew install llama.cpp
 #   - Linux: pip install llama-cpp-python
@@ -12,10 +16,16 @@ MODELS_DIR := $(HOME)/models
 VENV_DIR := .venv
 PYTHON := $(VENV_DIR)/bin/python
 PIP := $(VENV_DIR)/bin/pip
+CONFIG_FILE := server.conf
 
-# Load configuration
--include config.mk
+# Load configuration file content (strip comments and empty lines)
+SERVER_ARGS := $(shell grep -v '^#' $(CONFIG_FILE) 2>/dev/null | grep -v '^$$')
+
+# Load optional local overrides
 -include config.local.mk
+
+# Default port (can be overridden in config.local.mk)
+PORT ?= 8000
 
 .DEFAULT_GOAL := help
 
@@ -101,15 +111,10 @@ endif
 		echo "  - Linux:  pip install llama-cpp-python"; \
 		exit 1; \
 	fi
-	@if [ "$(PORT)" != "8000" ] || [ "$(N_PARALLEL)" != "1" ]; then \
-		echo "PORT ?= $(PORT)" > config.local.mk; \
-		echo "N_PARALLEL ?= $(N_PARALLEL)" >> config.local.mk; \
-		echo "Saved config to config.local.mk"; \
-	fi
 	@echo "Starting llama server with model: $(MODEL)"
-	@echo "  GPU layers: $(GPU_LAYERS), Context: $(CTX_SIZE), Max tokens: $(MAX_TOKENS)"
-	@echo "  Port: $(PORT), Parallel: $(N_PARALLEL)"
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $(PORT) -np $(N_PARALLEL)
+	@echo "  Port: $(PORT)"
+	@echo "  Args: $(SERVER_ARGS)"
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) --port $(PORT) $(SERVER_ARGS)
 
 serve-from-list:
 	@if ! command -v llama-server >/dev/null 2>&1; then \
@@ -128,10 +133,9 @@ serve-from-list:
 	if [ -z "$$model" ]; then echo "Invalid selection: $$choice"; exit 1; fi; \
 	read -p "Enter port (default: $(PORT)): " port; \
 	if [ -z "$$port" ]; then port=$(PORT); fi; \
-	if [ "$$port" != "$(PORT)" ] || [ "$(N_PARALLEL)" != "1" ]; then \
+	if [ "$$port" != "$(PORT)" ]; then \
 		echo "PORT ?= $$port" > config.local.mk; \
-		echo "N_PARALLEL ?= $(N_PARALLEL)" >> config.local.mk; \
-		echo "Saved config to config.local.mk"; \
+		echo "Saved port $$port to config.local.mk"; \
 	fi; \
 	echo "Starting llama server with model: $$model on port $$port"; \
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $$port -np $(N_PARALLEL)
+	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model --port $$port $(SERVER_ARGS)
