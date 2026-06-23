@@ -10,11 +10,28 @@ PIP := $(VENV_DIR)/bin/pip
 
 .DEFAULT_GOAL := help
 
-.PHONY: list serve serve-from-list help install venv
+.PHONY: list serve serve-from-list help install venv venv-list
+
+venv-list:
+	@echo "Available Python versions:"
+	@for py in python3 python3.13 python3.12 python3.11 python3.10; do \
+		if command -v $$py >/dev/null 2>&1; then \
+			$$py --version 2>&1; \
+		fi; \
+	done
 
 venv:
 	@echo "Creating virtual environment..."
 	python3 -m venv $(VENV_DIR)
+	@echo "Virtual environment created at $(VENV_DIR)"
+	@echo "Run 'make install' to install llama-cpp-python"
+
+venv-PYTHON:
+ifndef PYTHON_VER
+	$(error PYTHON_VER is not set. Run 'make venv-list' to see available versions, then 'make venv-PYTHON PYTHON_VER=python3.11')
+endif
+	@echo "Creating virtual environment with $(PYTHON_VER)..."
+	$(PYTHON_VER) -m venv $(VENV_DIR)
 	@echo "Virtual environment created at $(VENV_DIR)"
 	@echo "Run 'make install' to install llama-cpp-python"
 
@@ -28,7 +45,9 @@ $(VENV_DIR)/bin/activate:
 
 help:
 	@echo "Available targets:"
-	@echo "  venv             Create Python virtual environment"
+	@echo "  venv-list        List available Python versions"
+	@echo "  venv             Create Python virtual environment (default python3)"
+	@echo "  venv-PYTHON PYTHON_VER=X Create venv with specific Python version"
 	@echo "  install          Create venv (if needed) and install llama-cpp-python"
 	@echo "  list             List available models in $(MODELS_DIR)"
 	@echo "  serve MODEL=<name>  Start serving a specific model"
