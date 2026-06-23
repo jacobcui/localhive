@@ -10,6 +10,7 @@ dependencies = [
     "sse-starlette>=1.6.0",
     "starlette-context>=0.3.0",
     "anyio>=4.0.0",
+    "pydantic-settings>=2.0.0",
 ]
 
 [build-system]
