@@ -101,6 +101,10 @@ endif
 		echo "  - Linux:  pip install llama-cpp-python"; \
 		exit 1; \
 	fi
+	@if [ "$(PORT)" != "8000" ]; then \
+		echo "PORT ?= $(PORT)" > config.local.mk; \
+		echo "Saved port $(PORT) to config.local.mk"; \
+	fi
 	@echo "Starting llama server with model: $(MODEL)"
 	@echo "  GPU layers: $(GPU_LAYERS), Context: $(CTX_SIZE), Max tokens: $(MAX_TOKENS), Port: $(PORT)"
 	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $(PORT)
@@ -122,5 +126,9 @@ serve-from-list:
 	if [ -z "$$model" ]; then echo "Invalid selection: $$choice"; exit 1; fi; \
 	read -p "Enter port (default: $(PORT)): " port; \
 	if [ -z "$$port" ]; then port=$(PORT); fi; \
+	if [ "$$port" != "$(PORT)" ]; then \
+		echo "PORT ?= $$port" > config.local.mk; \
+		echo "Saved port $$port to config.local.mk"; \
+	fi; \
 	echo "Starting llama server with model: $$model on port $$port"; \
 	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model -ngl $(GPU_LAYERS) -c $(CTX_SIZE) -n $(MAX_TOKENS) --port $$port
