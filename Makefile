@@ -1,8 +1,9 @@
 # Makefile for managing llama models
-# Uses native llama-server binary (from conda: llama-cpp-python)
+# Uses llama-server binary (from pip or conda llama-cpp-python package)
 # Models are stored in ~/models directory
 
-LLAMA_SERVER := llama-server
+# Find llama-server binary (from pip or conda)
+LLAMA_SERVER := $(shell command -v llama-server 2>/dev/null)
 MODELS_DIR := $(HOME)/models
 VENV_DIR := .venv
 PYTHON := $(VENV_DIR)/bin/python
@@ -38,6 +39,12 @@ endif
 install: $(VENV_DIR)/bin/activate
 	@echo "Installing project dependencies..."
 	$(PIP) install -e .
+	@if ! command -v llama-server >/dev/null 2>&1; then \
+		echo ""; \
+		echo "Warning: llama-server binary not found in PATH."; \
+		echo "Install it via conda: conda install -c conda-forge llama-cpp-python"; \
+		echo "Or the pip package may include it depending on your platform."; \
+	fi
 
 $(VENV_DIR)/bin/activate:
 	@echo "Virtual environment not found. Creating..."
@@ -62,10 +69,20 @@ serve:
 ifndef MODEL
 	$(error MODEL is not set. Usage: make serve MODEL=<model_name>)
 endif
+	@if ! command -v llama-server >/dev/null 2>&1; then \
+		echo "Error: llama-server binary not found."; \
+		echo "Install via: conda install -c conda-forge llama-cpp-python"; \
+		exit 1; \
+	fi
 	@echo "Starting llama server with model: $(MODEL)"
 	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) -ngl 999 -c 131072 -n 8192 --port 8000
 
 serve-from-list:
+	@if ! command -v llama-server >/dev/null 2>&1; then \
+		echo "Error: llama-server binary not found."; \
+		echo "Install via: conda install -c conda-forge llama-cpp-python"; \
+		exit 1; \
+	fi
 	@echo "Available models:"
 	@i=1; for m in $$(ls -1 $(MODELS_DIR) 2>/dev/null); do echo "  $$i) $$m"; i=$$((i+1)); done
 	@echo ""
