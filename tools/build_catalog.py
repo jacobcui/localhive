@@ -52,7 +52,17 @@ QUANT_BPW = {
     "Q6_K": 6.6, "Q8_0": 8.5, "Q8_K_P": 8.5, "BF16": 16.0,
 }
 
-QUANT_RE = re.compile(r"(IQ\d+_[A-Z0-9]+|Q\d+(_K)?(_[A-Z0-9]+)?|BF16|F16|F32)")
+# Matches the quant token at the end of a GGUF filename. Covers llama.cpp
+# (Q4_K_M, IQ3_XS), the HauhauCS "P" variants (Q4_K_P), and the LM Studio
+# repack suffixes bartowski publishes (Q4_0_4_4, Q4_0_8_8), in any case.
+QUANT_RE = re.compile(
+    r"("
+    r"IQ\d+_[A-Z0-9_]+"          # IQ3_XS, IQ4_NL, IQ2_M
+    r"|Q\d+(_K)?(_[A-Z0-9]+)*"   # Q4_0, Q4_K_M, Q4_K_P, Q4_0_4_4
+    r"|BF16|F16|F32"
+    r")",
+    re.IGNORECASE,
+)
 
 
 def fetch(repo: str) -> list[tuple[str, int]]:
@@ -69,15 +79,29 @@ def fetch(repo: str) -> list[tuple[str, int]]:
 
 
 def classifier(filename: str) -> str:
-    """'model' | 'mmproj' | 'mtp' | 'skip'"""
+    """'model' | 'mmproj' | 'mtp' | 'skip'
+
+    Anything that is not a known companion file is treated as a model. A
+    filename we cannot parse is far more likely to be an unusual-but-valid
+    quant than a non-model, and silently dropping it means the user never
+    gets told the model exists.
+    """
     base = filename[:-5] if filename.endswith(".gguf") else filename
-    if base.startswith("mmproj-"):
+    low = base.lower()
+    if low.startswith("mmproj"):
         return "mmproj"
-    if base.startswith("mtp-") or base.startswith("MTP-") or "FastMTP" in base:
+    if low.startswith("mtp-") or low.startswith("mtp_") or "fastmtp" in low:
         return "mtp"
-    if QUANT_RE.fullmatch(base.rsplit("-", 1)[-1]):
-        return "model"
-    return "skip"
+    return "model"
+
+
+def quant_of(filename: str) -> str:
+    """Best-effort quant label. Falls back to the last dash token."""
+    base = filename[:-5] if filename.endswith(".gguf") else filename
+    tok = base.rsplit("-", 1)[-1]
+    if QUANT_RE.fullmatch(tok):
+        return tok.upper()
+    return tok.upper() if tok.isupper() or len(tok) <= 6 else "unknown"
 
 
 def main() -> int:

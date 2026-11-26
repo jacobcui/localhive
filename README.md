@@ -14,7 +14,7 @@ genuinely run.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platform-WSL2%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#requirements)
-[![Tests](https://img.shields.io/badge/tests-24%20passing-brightgreen.svg)](tests/test_fit.py)
+[![Tests](https://img.shields.io/badge/tests-27%20passing-brightgreen.svg)](tests/test_fit.py)
 
 <img src="docs/list-models.svg" alt="make list-models output showing only models that fit this machine" width="840">
 
@@ -205,9 +205,18 @@ Then `wsl --shutdown` from PowerShell and reopen. Re-run `make list-models`.
 
 ## Model catalog
 
-The catalog ships with **[HauhauCS](https://huggingface.co/HauhauCS)**'s
-uncensored GGUF builds — ~64 quantisations across 11 families, from a 2B that
-runs on anything to a 35B MoE.
+> **The catalog is currently 100% uncensored models from a single publisher**
+> ([HauhauCS](https://huggingface.co/HauhauCS)): 64 quantisations across 11
+> families, from a 2B that runs on anything to a 35B MoE. There are no
+> gated, safety-tuned, or vendor-official models in it.
+>
+> That is a deliberate curation choice, not a technical limit — `localhive`
+> does not care what a model says. If you want a different publisher, see
+> [Adding your own models](#adding-your-own-models) below; it is one line.
+
+If you are here for the *sizing* logic rather than the model list, jump to
+[How "does it fit" is decided](#how-does-it-fit-is-decided) — that part is
+publisher-agnostic.
 
 | | |
 | --- | --- |

@@ -270,3 +270,66 @@ def test_readme_test_badge_matches_reality():
     assert claimed == int(found.group(1)), (
         f"README badge claims {claimed} tests, pytest collects {found.group(1)}"
     )
+
+def test_classifier_keeps_unknown_quants():
+    """A quant we do not recognise must still be offered, not silently dropped.
+
+    Regression: the old classifier only matched a narrow regex, so LM Studio
+    repacks like Q4_0_4_4 and lowercase f16 were classified as 'skip' and
+    vanished from the catalog with no warning.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "build_catalog",
+        os.path.join(os.path.dirname(__file__), "..", "tools", "build_catalog.py"),
+    )
+    bc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bc)
+
+    real_models = [
+        "Llama-3.2-3B-Instruct-Q4_0_4_4.gguf",
+        "Llama-3.2-3B-Instruct-Q4_0_8_8.gguf",
+        "Llama-3.2-3B-Instruct-f16.gguf",
+        "Llama-3.2-3B-Instruct-Q4_K_L.gguf",
+        "Something-Weird-XYZ123.gguf",
+    ]
+    for name in real_models:
+        assert bc.classifier(name) == "model", f"{name} was dropped"
+
+    # companions must still be recognised
+    assert bc.classifier("mmproj-Foo-f16.gguf") == "mmproj"
+    assert bc.classifier("mtp-gemma-4-12B-it.gguf") == "mtp"
+    assert bc.classifier("MTP-something.gguf") == "mtp"
+
+
+def test_catalog_has_no_companion_files():
+    """mmproj / mtp must never appear as installable entries."""
+    from localhive import catalog
+    for m in catalog.CATALOG:
+        low = m.filename.lower()
+        assert not low.startswith("mmproj"), m.filename
+        assert not low.startswith("mtp-"), m.filename
+        assert "fastmtp" not in low, m.filename
+
+
+def test_catalog_matches_its_generator_shape():
+    """catalog.py must be exactly what tools/build_catalog.py emits.
+
+    Guards against someone hand-editing the generated file, which would make
+    the documented regenerate command produce a surprise diff.
+    """
+    import ast
+    path = os.path.join(os.path.dirname(__file__), "..", "src", "localhive", "catalog.py")
+    src = open(path, encoding="utf-8").read()
+    tree = ast.parse(src)
+
+    calls = [
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "Model"
+    ]
+    from localhive import catalog as c
+    assert len(calls) == len(c.CATALOG)
+
+    # the generator emits double-quoted strings; the file should match
+    assert "key='" not in src, "catalog.py has single-quoted keys; regenerate it"
+    assert 'key="' in src, "catalog.py should be generator output"
