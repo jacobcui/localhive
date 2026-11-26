@@ -14,7 +14,7 @@ genuinely run.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platform-WSL2%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#requirements)
-[![Tests](https://img.shields.io/badge/tests-51%20passing-brightgreen.svg)](tests/test_fit.py)
+[![Tests](https://img.shields.io/badge/tests-59%20passing-brightgreen.svg)](tests/test_fit.py)
 
 <img src="docs/list-models.svg" alt="make list-models output showing only models that fit this machine" width="840">
 
@@ -230,6 +230,23 @@ make list-models all=yes             # both together
 
 make install-model MODEL=qwen3.6-35b-a3b-iq2m uncensored=yes
 ```
+
+Every row is labelled. A `CONTENT` column appears whenever a listing mixes
+both types, and uncensored rows carry a tag in `DETAIL` otherwise — so a
+model stays identifiable after you copy its name out of the terminal:
+
+```console
+$ make list-models all=yes
+        MODEL                          SIZE  CONTENT     VERDICT       CTX  DETAIL
+  ----------------------------------------------------------------------------------------------------
+  [##]  qwen2.5-7b-iq2m              2.59G  standard    PERFECT     8,192  comfortable in unified memory
+  [##]  llama-3.2-3b-iq3m            1.49G  standard    PERFECT     8,192  comfortable in unified memory
+  [##]  qwen3.6-35b-a3b-iq2m        10.86G  uncensored  PERFECT     8,192  comfortable in unified memory | MoE
+```
+
+Standard models sort first, since they are the default. `make installed`
+labels whatever is already on your disk, and `install-model` prints a
+`Content: uncensored` line for anything uncensored.
 
 If you try to install an uncensored model without the flag, it is not
 silently allowed — you get told exactly what to do:

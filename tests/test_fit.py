@@ -658,3 +658,104 @@ def test_stop_without_args_explains_itself():
     with pytest.raises(SystemExit) as exc:
         cli.main(["stop"])
     assert "port" in str(exc.value).lower()
+
+# --- content is visible on every row ---------------------------------------
+
+def test_list_models_shows_content_column_when_mixed(capsys):
+    """In a mixed listing each row must say what it is.
+
+    Without this the only signal was the header, so a row copied out of the
+    terminal lost the information entirely.
+    """
+    from localhive import cli
+    cli.main(["list-models", "--all-content"])
+    out = capsys.readouterr().out
+    assert "CONTENT" in out, "mixed listing needs a CONTENT column"
+    assert "standard" in out
+    assert "uncensored" in out
+
+
+def test_list_models_omits_content_column_when_homogeneous(capsys):
+    """A single-content listing should not carry a redundant column."""
+    from localhive import cli
+    cli.main(["list-models"])
+    out = capsys.readouterr().out
+    assert "CONTENT" not in out
+
+
+def test_uncensored_rows_are_tagged_without_the_column(capsys):
+    """Even in a homogeneous uncensored view, the row itself is labelled."""
+    from localhive import cli
+    cli.main(["list-models", "--uncensored"])
+    out = capsys.readouterr().out
+    data_rows = [l for l in out.splitlines() if l.strip().startswith("[")]
+    assert data_rows, "expected some model rows"
+    assert all("uncensored" in r for r in data_rows), (
+        "every uncensored row should be tagged"
+    )
+
+
+def test_no_duplicate_uncensored_tag(capsys):
+    """The word must not appear twice on one row."""
+    from localhive import cli
+    cli.main(["list-models", "--all-content"])
+    out = capsys.readouterr().out
+    for line in out.splitlines():
+        if line.strip().startswith("[") and "uncensored" in line:
+            assert line.count("uncensored") == 1, f"tagged twice: {line!r}"
+
+
+def test_mixed_listing_puts_standard_models_first(capsys):
+    """Standard is the default, so it should not be buried below the fold."""
+    from localhive import cli
+    cli.main(["list-models", "--all-content"])
+    out = capsys.readouterr().out
+    rows = [l for l in out.splitlines() if l.strip().startswith("[")]
+    first_unc = next((i for i, r in enumerate(rows) if "uncensored" in r), len(rows))
+    last_std = max((i for i, r in enumerate(rows) if "standard" in r), default=-1)
+    assert last_std < first_unc, "standard models should sort before uncensored"
+
+
+def test_json_includes_content_per_model(capsys):
+    from localhive import cli
+    import json as _json
+    cli.main(["list-models", "--json", "--all-content"])
+    data = _json.loads(capsys.readouterr().out)
+    kinds = {m["content"] for m in data["models"]}
+    assert kinds == {"standard", "uncensored"}
+
+
+def test_install_sidecar_records_content(tmp_path, monkeypatch, capsys):
+    """The sidecar must record content so 'installed' can label it later."""
+    import json as _json
+    from localhive import cli
+    from localhive import catalog, models
+
+    std = models.filter_by_content(catalog.CATALOG, "standard")[0]
+
+    monkeypatch.setattr(cli, "_download", lambda url, dest, label: dest.write_bytes(b"x"))
+    rc = cli.main(["--dir", str(tmp_path), "install-model", std.key, "--no-mmproj"])
+    assert rc == 0
+    sidecar = tmp_path / (std.filename + ".localhive.json")
+    assert sidecar.exists()
+    assert _json.loads(sidecar.read_text())["content"] == "standard"
+
+
+def test_installed_listing_labels_content(tmp_path, capsys):
+    """An installed uncensored model must be identifiable on disk."""
+    import json as _json
+    from localhive import cli
+
+    (tmp_path / "Foo-Uncensored-Bar.gguf").write_bytes(b"x")
+    (tmp_path / "Foo-Uncensored-Bar.gguf.localhive.json").write_text(
+        _json.dumps({"key": "foo", "content": "uncensored"})
+    )
+    (tmp_path / "Plain-Model.gguf").write_bytes(b"x")
+    (tmp_path / "Plain-Model.gguf.localhive.json").write_text(
+        _json.dumps({"key": "plain", "content": "standard"})
+    )
+
+    cli.main(["--dir", str(tmp_path), "list-installed"])
+    out = capsys.readouterr().out
+    assert "uncensored" in out
+    assert "standard" in out

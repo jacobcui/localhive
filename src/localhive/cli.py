@@ -227,14 +227,22 @@ def cmd_list_models(args: argparse.Namespace) -> int:
 
     # Tell the user what they are looking at, and what they are not.
     scope_note = {
-        "standard": "standard models",
-        "uncensored": "uncensored models",
-        "all": "all models",
+        "standard": ("standard models", "standard models only"),
+        "uncensored": ("uncensored models", "UNCENSORED models only"),
+        "all": ("all models", "standard + uncensored"),
     }[scope]
+    label, plain = scope_note
     other = len(catalog.CATALOG) - len(pool)
-    if other:
-        scope_note += f" ({other} hidden by content filter)"
-    print(dim(f"  Showing  : {scope_note}"))
+    suffix = f" ({other} hidden by content filter)" if other else ""
+    # Uncensored is worth shouting about; standard is the quiet default.
+    rendered = yellow(plain) if scope == "uncensored" else plain
+    print(dim("  Showing  : ") + rendered + dim(suffix))
+    if scope == "uncensored":
+        print(dim("  Note     : uncensored community fine-tunes. Every name "
+                  "below needs"))
+        print(dim("             ") + cyan("uncensored=yes")
+              + dim(" when you install it, e.g."))
+        print("             " + cyan("make install-model MODEL=<name> uncensored=yes"))
     print()
 
     if not args.all and not args.verbose:
@@ -245,15 +253,33 @@ def cmd_list_models(args: argparse.Namespace) -> int:
                 by_family[m.family] = (m, f)
         shown = list(by_family.values())
 
-    shown.sort(key=lambda p: (models.VERDICT_ORDER[p[1].verdict], -p[0].size_bytes))
+    # In a mixed listing, standard models come first: they are the default,
+    # so they should not be pushed below the fold by uncensored builds.
+    shown.sort(key=lambda p: (
+        models.VERDICT_ORDER[p[1].verdict],
+        0 if not p[0].is_uncensored else 1,
+        -p[0].size_bytes,
+    ))
 
     if not shown:
         print(red("  No models fit this machine at the requested context."))
         print(dim("  Try a smaller --context, or free up memory."))
         return 1
 
-    print(bold(f"  {'':<5} {'MODEL':<26} {'SIZE':>8}  {'VERDICT':<8} {'CTX':>8}  DETAIL"))
-    print(dim("  " + "-" * 96))
+    # Show a CONTENT column whenever the listing is not homogeneous, so a
+    # row is self-describing once it is copied out of the terminal. With a
+    # single content type the column would be noise, so it is omitted.
+    content_types = {m.content for m, _ in shown}
+    show_content = len(content_types) > 1
+
+    if show_content:
+        print(bold(f"  {'':<5} {'MODEL':<26} {'SIZE':>8}  {'CONTENT':<11} "
+                   f"{'VERDICT':<8} {'CTX':>8}  DETAIL"))
+        print(dim("  " + "-" * 110))
+    else:
+        print(bold(f"  {'':<5} {'MODEL':<26} {'SIZE':>8}  {'VERDICT':<8} "
+                   f"{'CTX':>8}  DETAIL"))
+        print(dim("  " + "-" * 96))
 
     for m, f in shown:
         label, colour = VERDICT_LABEL[f.verdict]
@@ -264,13 +290,27 @@ def cmd_list_models(args: argparse.Namespace) -> int:
             caps.append("MoE")
         if m.mtp:
             caps.append("MTP")
+        # Only tag content in DETAIL when there is no CONTENT column; otherwise
+        # the same word appears twice on the row.
+        if m.content == "uncensored" and not show_content:
+            caps.append("uncensored")
         detail = f.reason
         if caps:
             detail += " | " + "+".join(caps)
-        print(
-            f"  {f.icon:<5} {m.key:<26} {m.size_gib:>6.2f}G  "
-            f"{colour(label):<8} {f.context:>8,}  {dim(detail)}"
-        )
+
+        if show_content:
+            tag = "uncensored" if m.is_uncensored else "standard"
+            tint = yellow if m.is_uncensored else dim
+            print(
+                f"  {f.icon:<5} {m.key:<26} {m.size_gib:>6.2f}G  "
+                f"{tint(f'{tag:<11}')} {colour(label):<8} {f.context:>8,}  "
+                f"{dim(detail)}"
+            )
+        else:
+            print(
+                f"  {f.icon:<5} {m.key:<26} {m.size_gib:>6.2f}G  "
+                f"{colour(label):<8} {f.context:>8,}  {dim(detail)}"
+            )
 
     print()
     print(f"  {green(str(len(fits)))} of {len(catalog.CATALOG)} catalog builds fit"
@@ -412,6 +452,8 @@ def cmd_install_model(args: argparse.Namespace) -> int:
     print(f"  Size     : {human(model.size_bytes)} on disk")
     print(f"  Target   : {dest_dir}")
     print(f"  Fit      : {fit.icon} {fit.verdict} - {fit.reason}")
+    if model.is_uncensored:
+        print(f"  Content  : {yellow('uncensored')}")
     print()
 
     if not fit.runnable and not args.force:
@@ -455,6 +497,7 @@ def cmd_install_model(args: argparse.Namespace) -> int:
                 "size_bytes": model.size_bytes,
                 "quant": model.quant,
                 "family": model.family,
+                "content": model.content,
                 "mmproj": model.mmproj,
                 "mtp": model.mtp,
                 "suggested_context": models.suggested_context(model, hw),
@@ -496,17 +539,37 @@ def cmd_list_installed(args: argparse.Namespace) -> int:
         print(dim("  Next: ") + cyan(self_command("list-models")))
         return 0
     total = 0
+    rows = []
     for p in files:
         size = p.stat().st_size
         total += size
         meta = p.with_suffix(p.suffix + ".localhive.json")
         key = ""
+        content = ""
         if meta.exists():
             try:
-                key = json.loads(meta.read_text()).get("key", "")
+                data = json.loads(meta.read_text())
+                key = data.get("key", "")
+                content = data.get("content", "")
             except (OSError, json.JSONDecodeError):
-                key = ""
-        print(f"  {human(size):>12}  {p.name}" + (dim(f"  ({key})") if key else ""))
+                pass
+        # Fall back to the catalog when there is no sidecar (e.g. a model
+        # installed before the sidecar existed).
+        if not content:
+            known = next((m for m in catalog.CATALOG if m.filename == p.name), None)
+            content = known.content if known else ""
+        rows.append((p, size, key, content))
+
+    mixed = len({c for _, _, _, c in rows if c}) > 1
+    for p, size, key, content in rows:
+        line = f"  {human(size):>12}  {p.name}"
+        if key:
+            line += dim(f"  ({key})")
+        if mixed and content:
+            tag = "uncensored" if content == "uncensored" else "standard"
+            colour = yellow if content == "uncensored" else dim
+            line += "  " + colour(tag)
+        print(line)
     print()
     print(dim(f"  {len(files)} file(s), {human(total)} total"))
     return 0
