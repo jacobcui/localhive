@@ -52,6 +52,13 @@ else
   warn "localhive not importable outside the venv (that is fine - use 'make')"
 fi
 
+# --- PATH shim ------------------------------------------------------------
+if command -v localhive >/dev/null 2>&1; then
+  ok "localhive on PATH: $(command -v localhive)"
+else
+  warn "localhive not on PATH - run 'make link' to add it"
+fi
+
 if [ -f ".venv/bin/python" ]; then
   ok "venv present at .venv"
   if .venv/bin/python -c "import localhive" 2>/dev/null; then

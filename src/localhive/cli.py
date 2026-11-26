@@ -73,6 +73,23 @@ def human(n: float) -> str:
     return f"{n:.1f} PiB"
 
 
+def self_command(subcommand: str) -> str:
+    """A command line the user can actually paste.
+
+    If 'localhive' is on PATH we print the bare name; otherwise we print an
+    absolute path to this very script so the hint is never a lie.
+    """
+    on_path = shutil.which("localhive")
+    if on_path:
+        return f"localhive {subcommand}"
+    argv0 = Path(sys.argv[0]).resolve()
+    if argv0.name.startswith("localhive") or argv0.name == "__main__.py":
+        if argv0.exists() and os.access(argv0, os.X_OK):
+            return f"{argv0} {subcommand}"
+        return f"{sys.executable} -m localhive.cli {subcommand}"
+    return f"localhive {subcommand}"
+
+
 def resolve(name: str) -> Model:
     """Map whatever the user typed onto a catalog entry."""
     want = name.strip()
@@ -98,7 +115,7 @@ def resolve(name: str) -> Model:
     if not hits:
         raise SystemExit(
             f"error: no model matches {name!r}.\n"
-            f"       run 'localhive list-models' to see what is available."
+            f"       run '{self_command('list-models')}' to see what is available."
         )
 
     hits.sort(key=lambda m: m.size_bytes)
@@ -182,7 +199,7 @@ def cmd_list_models(args: argparse.Namespace) -> int:
         biggest = max(hidden, key=lambda p: p[0].size_bytes)
         print(dim(f"  Largest hidden (too big): {biggest[0].key} - {biggest[1].reason}"))
     print()
-    print(dim("  Next: ") + cyan("localhive install-model <model>"))
+    print(dim("  Next: ") + cyan(self_command("install-model <model>")))
     return 0
 
 
@@ -316,7 +333,7 @@ def cmd_install_model(args: argparse.Namespace) -> int:
     if model.mmproj and not args.no_mmproj:
         print(f"    {dest_dir / model.mmproj}")
     print()
-    print(dim("  Next: ") + cyan(f"localhive serve {model.key}"))
+    print(dim("  Next: ") + cyan(self_command(f"serve {model.key}")))
     return 0
 
 
@@ -338,7 +355,7 @@ def cmd_list_installed(args: argparse.Namespace) -> int:
     if not files:
         print(dim("  (none)"))
         print()
-        print(dim("  Next: ") + cyan("localhive list-models"))
+        print(dim("  Next: ") + cyan(self_command("list-models")))
         return 0
     total = 0
     for p in files:
@@ -364,7 +381,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if not path.exists():
         raise SystemExit(
             f"error: {path} not found.\n"
-            f"       install it first: localhive install-model {model.key}"
+            f"       install it first: {self_command(f'install-model {model.key}')}"
         )
 
     server = shutil.which("llama-server")

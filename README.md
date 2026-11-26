@@ -18,11 +18,20 @@ Works on **WSL2 Ubuntu**, native Linux and macOS.
 git clone git@github.com:jacobcui/localhive.git
 cd localhive
 
-make install                         # llama.cpp + python venv
+make install                         # llama.cpp + venv + PATH
 make list-models                     # what can THIS box run?
 make install-model MODEL=qwen3.6-35b-a3b-iq2m
-make serve MODEL=qwen3.6-35b-a3b-iq2m
+localhive serve qwen3.6-35b-a3b-iq2m
 ```
+
+`make install` also puts `localhive` on your `PATH` by writing a small shim
+to `~/.local/bin/localhive` that forwards to this checkout's venv. If you
+prefer not to touch your `PATH`, skip it and use `make` targets instead — or
+call the CLI directly at `.venv/bin/localhive`.
+
+> **`command not found: localhive`?** You ran the CLI outside the venv before
+> `make link` was run. Fix it with `make link` (then open a new shell if
+> `~/.local/bin` is not on your `PATH`), or use `make serve` / `.venv/bin/localhive`.
 
 ## The two targets you asked for
 
@@ -151,7 +160,10 @@ visible GPU via `nvidia-smi` and installs the CUDA build automatically.
 
 | Target | Description |
 | --- | --- |
-| `make install` | llama.cpp + python venv + localhive |
+| `make install` | llama.cpp + python venv + PATH shim |
+| `make link` | put `localhive` on your PATH |
+| `make unlink` | remove the PATH shim |
+| `make reinstall` | force a fresh dependency install |
 | `make check` | verify the environment end to end |
 | `make list-models` | models that fit this machine |
 | `make install-model MODEL=X` | download model X |
@@ -164,15 +176,19 @@ visible GPU via `nvidia-smi` and installs the CUDA build automatically.
 
 ## CLI
 
-`make` is a thin wrapper; the `localhive` CLI does the work and can be used
-directly once the venv exists:
+`make` is a thin wrapper; the `localhive` CLI does the work. After
+`make install` (or `make link`) it is on your `PATH`:
 
 ```bash
-.venv/bin/localhive list-models --context 32768 --verbose
-.venv/bin/localhive install-model qwen3.6-35b-a3b-iq2m
-.venv/bin/localhive serve qwen3.6-35b-a3b-iq2m --port 7000
-.venv/bin/localhive hardware --json
+localhive list-models --context 32768 --verbose
+localhive install-model qwen3.6-35b-a3b-iq2m
+localhive serve qwen3.6-35b-a3b-iq2m --port 7000
+localhive hardware --json
 ```
+
+Without the shim, the same commands work as `.venv/bin/localhive ...`. The
+"Next:" hints the tool prints always name a command that exists, so they are
+safe to copy and paste either way.
 
 ## Model source
 

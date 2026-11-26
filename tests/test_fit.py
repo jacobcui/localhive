@@ -181,3 +181,28 @@ def test_hardware_json(capsys):
     data = json.loads(out)
     assert data["total_ram_bytes"] > 0
     assert "gpus" in data
+
+def test_self_command_is_runnable():
+    """The 'Next:' hint must name something that exists, not a bare name."""
+    import shutil as _shutil
+    from localhive import cli
+    cmd = cli.self_command("list-models")
+    prog = cmd.split()[0]
+    assert _shutil.which(prog) or os.path.exists(prog), (
+        f"hint points at a command that does not exist: {cmd!r}"
+    )
+
+
+def test_next_hint_does_not_lie(capsys):
+    """Whatever list-models prints as 'Next:' must be an existing program."""
+    import shutil as _shutil
+    from localhive import cli
+    cli.main(["list-models"])
+    out = capsys.readouterr().out
+    line = [l for l in out.splitlines() if "Next:" in l]
+    assert line, "list-models should print a next step"
+    # strip ANSI colour codes if present
+    import re
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", line[0])
+    cmd = clean.split("Next:")[1].strip().split()[0]
+    assert _shutil.which(cmd) or os.path.exists(cmd), f"bad hint: {cmd!r}"

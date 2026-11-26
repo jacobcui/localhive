@@ -27,8 +27,8 @@ STAMP       := $(VENV)/.localhive-installed
 CONTEXT     ?= 8192
 
 .DEFAULT_GOAL := help
-.PHONY: help install deps llama check list-models list install-model installed \
-        serve hardware where clean-venv doctor test reinstall
+.PHONY: help install deps llama link unlink check list-models list install-model \
+        installed serve hardware where clean-venv doctor test reinstall
 
 # ---------------------------------------------------------------------------
 # help
@@ -46,7 +46,7 @@ help: ## Show this help
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Typical flow:"
-	@echo "  make install              # once: llama.cpp + venv"
+	@echo "  make install              # once: llama.cpp + venv + PATH"
 	@echo "  make list-models          # see what this box can run"
 	@echo "  make install-model MODEL=qwen3.6-35b-a3b-iq2m"
 	@echo "  make serve MODEL=qwen3.6-35b-a3b-iq2m"
@@ -77,7 +77,14 @@ reinstall: ## Force a fresh dependency install
 llama: ## Install llama.cpp (brew on macOS, prebuilt binary on Linux/WSL)
 	@bash scripts/install_llama.sh
 
-install: llama deps ## Install llama.cpp and all Python dependencies
+link: $(STAMP) ## Put 'localhive' on your PATH (via ~/.local/bin)
+	@bash scripts/link_cli.sh || true
+
+unlink: ## Remove the 'localhive' shim from ~/.local/bin
+	@rm -f "${LOCALHIVE_BIN_DIR:-$(HOME)/.local/bin}/localhive"
+	@echo "removed localhive shim"
+
+install: llama deps link ## Install llama.cpp, deps, and put localhive on PATH
 
 check: ## Verify llama-server and localhive are usable
 	@bash scripts/check_env.sh
