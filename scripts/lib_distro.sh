@@ -70,7 +70,16 @@ lh_is_wsl() {
 
 lh_pretty_name() {
   if [ -n "${LOCALHIVE_PRETTY:-}" ]; then printf '%s' "$LOCALHIVE_PRETTY"; return; fi
-  if [ "$(uname -s)" = "Darwin" ]; then printf 'macOS'; return; fi
+
+  # Must agree with lh_distro_id: both consult the same override and the
+  # same Darwin short-circuit, otherwise the error text can name one
+  # platform while advising a package manager from another.
+  if [ -n "${LOCALHIVE_FORCE_LINUX:-}" ]; then
+    :
+  elif [ "$(uname -s)" = "Darwin" ]; then
+    printf 'macOS'; return
+  fi
+
   if [ -r "$LOCALHIVE_OS_RELEASE" ]; then
     # shellcheck disable=SC1091
     . "$LOCALHIVE_OS_RELEASE"

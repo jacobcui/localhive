@@ -1023,3 +1023,47 @@ def test_all_scripts_source_the_distro_library():
         text = open(path, encoding="utf-8").read()
         if "lh_install_hint" in text or "lh_hint_block" in text:
             assert "lib_distro.sh" in text, f"{base} uses helpers but does not source them"
+
+@pytest.mark.parametrize("ident,pretty,expect_family,expect_frag", [
+    ("ubuntu",         "Ubuntu 26.04 LTS",  "debian", "apt"),
+    ("fedora",         "Fedora Linux 40",   "fedora", "dnf"),
+    ("arch",           "Arch Linux",        "arch",   "pacman"),
+    ("opensuse-leap",  "openSUSE Leap 15.5", "suse",  "zypper"),
+    ("alpine",         "Alpine Linux",      "alpine", "apk"),
+    ("rhel",           "Red Hat Enterprise Linux", "rhel", "yum"),
+])
+def test_pretty_name_and_hint_agree(ident, pretty, expect_family, expect_frag, tmp_path):
+    """The name we report and the command we suggest must match the same OS.
+
+    Regression: lh_pretty_name checked 'uname == Darwin' before consulting
+    the os-release override while lh_distro_id did not, so an error could
+    say "on macOS" and then advise 'sudo dnf install'.
+    """
+    import subprocess
+
+    release = tmp_path / "os-release"
+    release.write_text(f'ID={ident}\nID_LIKE=\nPRETTY_NAME="{pretty}"\n')
+
+    env = dict(os.environ, LOCALHIVE_OS_RELEASE=str(release),
+               LOCALHIVE_FORCE_LINUX="1")
+    proc = subprocess.run(
+        ["bash", "-c",
+         f'. "{_lib_distro()}"; printf "%s|%s" "$(lh_distro_id)" "$(lh_install_hint python_venv)"'],
+        capture_output=True, text=True, env=env, timeout=30,
+    )
+    distro, hint = proc.stdout.split("|", 1)
+    # lh_distro_id deliberately reports the *family* (debian, not ubuntu),
+    # since that is what selects package-manager syntax.
+    assert distro == expect_family, f"detected {distro!r} for {ident!r}"
+    assert expect_frag in hint, f"{ident} got hint {hint!r}"
+
+
+def test_pretty_name_reports_macos_without_override():
+    """Without an override, this machine's real platform is reported."""
+    import subprocess
+    proc = subprocess.run(
+        ["bash", "-c", f'. "{_lib_distro()}"; lh_pretty_name'],
+        capture_output=True, text=True, timeout=30,
+    )
+    expected = "macOS" if sys.platform == "darwin" else proc.stdout.strip()
+    assert proc.stdout.strip() == expected
