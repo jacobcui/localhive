@@ -1,127 +1,108 @@
-# Makefile for managing llama models
-# Uses llama-server binary from llama.cpp
-# Models are stored in ~/models directory
+# localhive - run local GGUF models sized to the machine you are on.
 #
-# Configuration:
-#   - server.conf: llama-server arguments (edit this file)
+#   make list-models              show only models that fit THIS machine
+#   make install-model MODEL=X    download model X into ~/.localhive/models
+#   make serve MODEL=X            run llama-server for an installed model
+#   make install                  install llama.cpp + python deps
 #
-# Installation:
-#   - macOS: brew install llama.cpp
-#   - Linux: pip install llama-cpp-python
+# Everything is driven from the repo root so it works the same on
+# WSL2 Ubuntu, native Linux and macOS.
 
-# Find llama-server binary (from pip or conda)
-LLAMA_SERVER := $(shell command -v llama-server 2>/dev/null)
-MODELS_DIR := $(HOME)/models
-VENV_DIR := .venv
-PYTHON := $(VENV_DIR)/bin/python
-PIP := $(VENV_DIR)/bin/pip
-CONFIG_FILE := server.conf
+SHELL       := /bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
 
-# Load configuration file content (strip comments and empty lines)
-SERVER_ARGS := $(shell cat $(CONFIG_FILE) 2>/dev/null | grep -v '^#' | grep '.')
+MODELS_DIR  ?= $(HOME)/.localhive/models
+VENV        ?= .venv
+PYTHON      ?= $(VENV)/bin/python
+LOCALHIVE   := $(VENV)/bin/localhive
+
+# Context to plan for when deciding what fits. Override like:
+#   make list-models CONTEXT=32768
+CONTEXT     ?= 8192
 
 .DEFAULT_GOAL := help
+.PHONY: help install deps llama check list-models list install-model installed \
+        serve hardware where clean-venv doctor test
 
-.PHONY: list serve serve-from-list help install venv venv-list
+# ---------------------------------------------------------------------------
+# help
+# ---------------------------------------------------------------------------
+help: ## Show this help
+	@echo "localhive - machine-aware local model manager"
+	@echo ""
+	@echo "Usage: make <target> [MODEL=<name>] [CONTEXT=<tokens>]"
+	@echo ""
+	@echo "  MODELS_DIR = $(MODELS_DIR)"
+	@echo "  CONTEXT    = $(CONTEXT)"
+	@echo ""
+	@echo "Targets:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Typical flow:"
+	@echo "  make install              # once: llama.cpp + venv"
+	@echo "  make list-models          # see what this box can run"
+	@echo "  make install-model MODEL=qwen3.6-35b-a3b-iq2m"
+	@echo "  make serve MODEL=qwen3.6-35b-a3b-iq2m"
 
-venv-list:
-	@echo "Available Python versions:"
-	@for py in python3 python3.13 python3.12 python3.11 python3.10; do \
-		if command -v $$py >/dev/null 2>&1; then \
-			$$py --version 2>&1; \
-		fi; \
-	done
-
-venv:
-	@echo "Creating virtual environment..."
-	python3 -m venv $(VENV_DIR)
-	@echo "Virtual environment created at $(VENV_DIR)"
-	@echo "Run 'make install' to install dependencies from pyproject.toml"
-
-venv-PYTHON:
-ifndef PYTHON_VER
-	$(error PYTHON_VER is not set. Run 'make venv-list' to see available versions, then 'make venv-PYTHON PYTHON_VER=python3.11')
-endif
-	@echo "Creating virtual environment with $(PYTHON_VER)..."
-	$(PYTHON_VER) -m venv $(VENV_DIR)
-	@echo "Virtual environment created at $(VENV_DIR)"
-	@echo "Run 'make install' to install dependencies from pyproject.toml"
-
-install:
-	@echo "Installing llama.cpp and Python dependencies..."
-	@OS=$$(uname -s); \
-	if [ "$$OS" = "Darwin" ]; then \
-		echo "macOS detected. Installing llama.cpp via Homebrew..."; \
-		if ! command -v brew >/dev/null 2>&1; then \
-			echo "Homebrew not found. Installing Homebrew..."; \
-			/bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; \
-		fi; \
-		brew install llama.cpp; \
-	elif [ "$$OS" = "Linux" ]; then \
-		echo "Linux detected. Installing llama-cpp-python via pip..."; \
-		pip install llama-cpp-python; \
-	else \
-		echo "Unsupported OS: $$OS"; \
-		exit 1; \
+# ---------------------------------------------------------------------------
+# setup
+# ---------------------------------------------------------------------------
+deps: ## Install Python virtualenv + localhive into it
+	@if [ ! -d "$(VENV)" ]; then \
+		echo "==> creating virtualenv at $(VENV)"; \
+		python3 -m venv "$(VENV)"; \
 	fi
-	@echo ""
-	@echo "Setting up Python virtual environment..."
-	@if [ ! -d $(VENV_DIR) ]; then $(MAKE) venv; fi
-	@echo ""
-	@echo "Installing Python dependencies..."
-	$(PIP) install -e .
-	@echo ""
-	@echo "Verifying installation..."
-	@llama-server --version || echo "Warning: llama-server not found in PATH"
+	@echo "==> installing python deps"
+	@"$(VENV)/bin/pip" install --quiet --upgrade pip
+	@"$(VENV)/bin/pip" install --quiet -e .
+	@echo "==> done"
 
-$(VENV_DIR)/bin/activate:
-	@echo "Virtual environment not found. Creating..."
-	@$(MAKE) venv
+llama: ## Install llama.cpp (brew on macOS, prebuilt binary on Linux/WSL)
+	@bash scripts/install_llama.sh
 
-help:
-	@echo "Available targets:"
-	@echo "  venv-list        List available Python versions"
-	@echo "  venv             Create Python virtual environment (default python3)"
-	@echo "  venv-PYTHON PYTHON_VER=X Create venv with specific Python version"
-	@echo "  install          Install llama.cpp (brew/pip) and Python dependencies"
-	@echo "  list             List available models in $(MODELS_DIR)"
-	@echo "  serve MODEL=<name>  Start serving a specific model"
-	@echo "  serve-from-list  Interactive menu to select and serve a model"
-	@echo "  help             Show this help message"
+install: llama deps ## Install llama.cpp and all Python dependencies
 
-list:
-	@echo "Available models in $(MODELS_DIR):"
-	@ls -1 $(MODELS_DIR) 2>/dev/null || echo "  No models found"
+check: ## Verify llama-server and localhive are usable
+	@bash scripts/check_env.sh
 
-serve:
+doctor: check ## Alias for check
+
+test: ## Run the test suite
+	@$(PYTHON) -m pytest -q tests 2>/dev/null || $(PYTHON) tests/test_fit.py
+
+# ---------------------------------------------------------------------------
+# the two important targets
+# ---------------------------------------------------------------------------
+list-models: deps ## List models that fit this machine
+	@$(LOCALHIVE) list-models --context $(CONTEXT) $(ARGS)
+
+list: list-models ## Alias for list-models
+
+install-model: deps ## Install a model (MODEL=<name from list-models>)
 ifndef MODEL
-	$(error MODEL is not set. Usage: make serve MODEL=<model_name>)
+	$(error MODEL is not set. Run 'make list-models', then 'make install-model MODEL=<name>')
 endif
-	@if ! command -v llama-server >/dev/null 2>&1; then \
-		echo "Error: llama-server binary not found."; \
-		echo "Install via:"; \
-		echo "  - macOS:  brew install llama.cpp"; \
-		echo "  - Linux:  pip install llama-cpp-python"; \
-		exit 1; \
-	fi
-	@echo "Starting llama server with model: $(MODEL)"
-	@echo "  Args: $(SERVER_ARGS)"
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$(MODEL) $(SERVER_ARGS)
+	@$(LOCALHIVE) --dir "$(MODELS_DIR)" install-model "$(MODEL)" --context $(CONTEXT) $(ARGS)
 
-serve-from-list:
-	@if ! command -v llama-server >/dev/null 2>&1; then \
-		echo "Error: llama-server binary not found."; \
-		echo "Install via:"; \
-		echo "  - macOS:  brew install llama.cpp"; \
-		echo "  - Linux:  pip install llama-cpp-python"; \
-		exit 1; \
-	fi
-	@echo "Available models:"
-	@i=1; for m in $$(ls -1 $(MODELS_DIR) 2>/dev/null); do echo "  $$i) $$m"; i=$$((i+1)); done
-	@echo ""
-	@read -p "Select model (1-$$((i-1))): " choice; \
-	if [ -z "$$choice" ]; then echo "No selection made"; exit 1; fi; \
-	model=$$(ls -1 $(MODELS_DIR) 2>/dev/null | sed -n "$${choice}p"); \
-	if [ -z "$$model" ]; then echo "Invalid selection: $$choice"; exit 1; fi; \
-	echo "Starting llama server with model: $$model"; \
-	$(LLAMA_SERVER) --model $(MODELS_DIR)/$$model $(SERVER_ARGS)
+installed: deps ## Show models already installed
+	@$(LOCALHIVE) --dir "$(MODELS_DIR)" list-installed
+
+serve: deps ## Serve an installed model (MODEL=<name>)
+ifndef MODEL
+	$(error MODEL is not set. Run 'make installed', then 'make serve MODEL=<name>')
+endif
+	@$(LOCALHIVE) --dir "$(MODELS_DIR)" serve "$(MODEL)" $(ARGS)
+
+hardware: deps ## Show detected CPU / RAM / GPU
+	@$(LOCALHIVE) hardware $(ARGS)
+
+where: ## Print the models directory
+	@echo "$(MODELS_DIR)"
+
+# ---------------------------------------------------------------------------
+# housekeeping
+# ---------------------------------------------------------------------------
+clean-venv: ## Remove the virtualenv
+	@rm -rf "$(VENV)"
+	@echo "removed $(VENV)"

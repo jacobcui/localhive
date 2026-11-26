@@ -1,18 +1,27 @@
 [project]
-name = "run-models"
+name = "localhive"
 version = "0.1.0"
-description = "Helper for running llama models"
-requires-python = ">=3.10"
-dependencies = [
-    "llama-cpp-python>=0.3.0",
-    "uvicorn>=0.23.0",
-    "fastapi>=0.100.0",
-    "sse-starlette>=1.6.0",
-    "starlette-context>=0.3.0",
-    "anyio>=4.0.0",
-    "pydantic-settings>=2.0.0",
-]
+description = "List, install and serve local GGUF models sized to your machine"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+localhive = "localhive.cli:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

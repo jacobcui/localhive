@@ -1,18 +1,21 @@
-# Python virtual environment
+# Python
 .venv/
-
-# Python build artifacts
+venv/
 *.egg-info/
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
+.pytest_cache/
+build/
+dist/
 
-# IDE
+# Model files - these are huge and machine-local
+*.gguf
+*.part
+models/
+
+# Editor / OS
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# Qwen
-.qwen/
+.DS_Store
