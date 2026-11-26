@@ -140,19 +140,21 @@ def test_gpu_offload_reported():
 
 def test_resolve_by_key():
     from localhive import cli
-    assert cli.resolve("qwen3.6-35b-a3b-iq2m").key == "qwen3.6-35b-a3b-iq2m"
+    # uncensored now requires an explicit scope
+    assert cli.resolve("qwen3.6-35b-a3b-iq2m", "uncensored").key == "qwen3.6-35b-a3b-iq2m"
 
 
 def test_resolve_by_filename():
     from localhive import cli
-    m = cli.resolve("Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ2_M.gguf")
+    m = cli.resolve("Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ2_M.gguf",
+                    "uncensored")
     assert m.key == "qwen3.6-35b-a3b-iq2m"
 
 
 def test_resolve_unknown_exits():
     from localhive import cli
     with pytest.raises(SystemExit):
-        cli.resolve("definitely-not-a-model-xyz")
+        cli.resolve("definitely-not-a-model-xyz", "all")
 
 
 def test_list_models_runs(capsys, monkeypatch):
@@ -211,7 +213,7 @@ def test_list_models_json_is_valid(capsys):
     """--json is documented in the README, so it has to actually work."""
     import json as _json
     from localhive import cli, catalog
-    rc = cli.main(["list-models", "--json"])
+    rc = cli.main(["list-models", "--json", "--all-content"])
     out = capsys.readouterr().out
     assert rc == 0
     data = _json.loads(out)
@@ -279,12 +281,22 @@ def test_classifier_keeps_unknown_quants():
     vanished from the catalog with no warning.
     """
     import importlib.util
+    import sys as _sys
+
+    # The module must be registered in sys.modules before exec_module, or
+    # dataclasses cannot resolve the string annotations produced by
+    # "from __future__ import annotations".
+    name = "_localhive_build_catalog_test"
     spec = importlib.util.spec_from_file_location(
-        "build_catalog",
+        name,
         os.path.join(os.path.dirname(__file__), "..", "tools", "build_catalog.py"),
     )
     bc = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(bc)
+    _sys.modules[name] = bc
+    try:
+        spec.loader.exec_module(bc)
+    finally:
+        _sys.modules.pop(name, None)
 
     real_models = [
         "Llama-3.2-3B-Instruct-Q4_0_4_4.gguf",
@@ -333,3 +345,208 @@ def test_catalog_matches_its_generator_shape():
     # the generator emits double-quoted strings; the file should match
     assert "key='" not in src, "catalog.py has single-quoted keys; regenerate it"
     assert 'key="' in src, "catalog.py should be generator output"
+
+# --- content filtering ------------------------------------------------------
+
+def test_catalog_has_both_content_types():
+    from localhive import catalog, models
+    std = models.filter_by_content(catalog.CATALOG, "standard")
+    unc = models.filter_by_content(catalog.CATALOG, "uncensored")
+    assert std, "catalog must contain standard models by default"
+    assert unc, "uncensored models should still be available"
+    assert len(std) + len(unc) == len(models.filter_by_content(catalog.CATALOG, "all"))
+
+
+def test_default_content_is_standard():
+    from localhive import models
+    assert models.DEFAULT_CONTENT == "standard"
+
+
+def test_filter_standard_excludes_uncensored():
+    from localhive import catalog, models
+    std = models.filter_by_content(catalog.CATALOG, "standard")
+    assert all(not m.is_uncensored for m in std)
+    assert len(std) < len(catalog.CATALOG)
+
+
+def test_filter_uncensored_only():
+    from localhive import catalog, models
+    unc = models.filter_by_content(catalog.CATALOG, "uncensored")
+    assert all(m.is_uncensored for m in unc)
+
+
+def test_filter_all_returns_everything():
+    from localhive import catalog, models
+    assert len(models.filter_by_content(catalog.CATALOG, "all")) == len(catalog.CATALOG)
+
+
+def test_content_is_declared_not_sniffed():
+    """Content must be an explicit field, not guessed from the filename."""
+    from localhive import catalog
+    for m in catalog.CATALOG:
+        assert m.content in ("standard", "uncensored"), m.key
+        # a model whose name says 'uncensored' must be labelled as such
+        if "uncensored" in m.filename.lower():
+            assert m.is_uncensored, f"{m.key} name says uncensored but content=s standard"
+
+
+def test_catalog_spans_multiple_publishers():
+    """The catalog must not be a single publisher's shelf."""
+    from localhive import catalog
+    owners = {m.repo.split("/")[0] for m in catalog.CATALOG}
+    assert len(owners) >= 3, f"only {len(owners)} publisher(s): {owners}"
+
+
+def test_resolve_hides_uncensored_by_default():
+    from localhive import cli
+    with pytest.raises(SystemExit) as exc:
+        cli.resolve("qwen3.6-35b-a3b-iq2m", "standard")
+    # the error should tell the user how to get it
+    assert "uncensored" in str(exc.value).lower()
+
+
+def test_resolve_finds_uncensored_when_asked():
+    from localhive import cli
+    m = cli.resolve("qwen3.6-35b-a3b-iq2m", "uncensored")
+    assert m.is_uncensored
+
+
+def test_resolve_standard_model_without_flag():
+    from localhive import cli
+    from localhive import catalog, models
+    std = models.filter_by_content(catalog.CATALOG, "standard")
+    m = cli.resolve(std[0].key, "standard")
+    assert not m.is_uncensored
+
+
+def test_list_models_default_hides_uncensored(capsys):
+    from localhive import cli
+    cli.main(["list-models", "--json"])
+    import json as _json
+    data = _json.loads(capsys.readouterr().out)
+    assert data["content_filter"] == "standard"
+    assert all(m["content"] == "standard" for m in data["models"])
+
+
+def test_list_models_uncensored_flag(capsys):
+    from localhive import cli
+    cli.main(["list-models", "--json", "--uncensored"])
+    import json as _json
+    data = _json.loads(capsys.readouterr().out)
+    assert data["content_filter"] == "uncensored"
+    assert all(m["content"] == "uncensored" for m in data["models"])
+
+
+def test_list_models_all_content_flag(capsys):
+    from localhive import cli
+    from localhive import catalog
+    cli.main(["list-models", "--json", "--all-content"])
+    import json as _json
+    data = _json.loads(capsys.readouterr().out)
+    assert data["content_filter"] == "all"
+    assert len(data["models"]) == len(catalog.CATALOG)
+
+def test_download_resumes_from_part_file(tmp_path, monkeypatch):
+    """A .part file must be resumed, not restarted, and not corrupted.
+
+    Regression: the downloader opened the .part with "wb", so an interrupted
+    3 GB download started again from zero.
+    """
+    import urllib.request
+    from localhive import cli
+
+    payload = b"0123456789" * 1000          # 10 KB "file"
+    already = 4000
+    part = tmp_path / "m.gguf.part"
+    part.write_bytes(payload[:already])
+
+    seen = {}
+
+    class FakeResp:
+        status = 206
+        headers = {"Content-Length": str(len(payload) - already)}
+
+        def read(self, n=-1):
+            self._sent = getattr(self, "_sent", False)
+            if self._sent:
+                return b""
+            self._sent = True
+            return payload[already:]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, *a, **k):
+        seen["range"] = req.headers.get("Range")
+        return FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    cli._download("https://example.invalid/m.gguf", tmp_path / "m.gguf", "test")
+
+    assert seen.get("range") == f"bytes={already}-", "resume Range header not sent"
+    got = (tmp_path / "m.gguf").read_bytes()
+    assert got == payload, "resumed file does not match the original"
+    assert not part.exists(), ".part should be gone after a completed download"
+
+
+def test_download_restarts_when_server_ignores_range(tmp_path, monkeypatch):
+    """If the server returns 200 instead of 206, start over rather than append."""
+    import urllib.request
+    from localhive import cli
+
+    payload = b"abcdefghij" * 500
+    part = tmp_path / "n.gguf.part"
+    part.write_bytes(b"GARBAGE" * 1000)     # stale partial content
+
+    class FakeResp:
+        status = 200                        # server ignored our Range
+        headers = {"Content-Length": str(len(payload))}
+
+        def read(self, n=-1):
+            if getattr(self, "_done", False):
+                return b""
+            self._done = True
+            return payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: FakeResp())
+    cli._download("https://example.invalid/n.gguf", tmp_path / "n.gguf", "test")
+
+    got = (tmp_path / "n.gguf").read_bytes()
+    assert got == payload, "stale .part content leaked into the final file"
+
+
+def test_download_keeps_part_on_interrupt(tmp_path, monkeypatch):
+    """Ctrl-C must keep the partial file so the next run can resume."""
+    import urllib.request
+    from localhive import cli
+
+    class Boom(Exception):
+        pass
+
+    class FakeResp:
+        status = 200
+        headers = {"Content-Length": "999999"}
+
+        def read(self, n=-1):
+            raise KeyboardInterrupt
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: FakeResp())
+    with pytest.raises(SystemExit):
+        cli._download("https://example.invalid/o.gguf", tmp_path / "o.gguf", "test")
+
+    assert (tmp_path / "o.gguf.part").exists(), "partial file was deleted; resume impossible"

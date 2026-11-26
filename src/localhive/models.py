@@ -51,10 +51,18 @@ class Model:
     mmproj: Optional[str] = None  # vision projector file, if any
     mtp: Optional[str] = None     # multi-token-prediction draft head, if any
     notes: str = ""
+    #: "standard" or "uncensored". Declared per catalog entry rather than
+    #: sniffed from the filename, so filtering is reliable and a publisher
+    #: cannot be mislabelled by an accident of naming.
+    content: str = "standard"
 
     @property
     def size_gib(self) -> float:
         return self.size_bytes / GIB
+
+    @property
+    def is_uncensored(self) -> bool:
+        return self.content == "uncensored"
 
     @property
     def url(self) -> str:
@@ -103,6 +111,32 @@ class Fit:
             "cpu-only": "[cc]",
             "too-big": "[XX]",
         }[self.verdict]
+
+
+# --------------------------------------------------------------------------
+# Content filtering
+#
+# The default is "standard" models. Uncensored builds are one opt-in away,
+# never the thing you get by accident.
+# --------------------------------------------------------------------------
+
+#: What 'list-models' shows when the user has not said otherwise.
+DEFAULT_CONTENT = "standard"
+
+
+def filter_by_content(items: list[Model], content: str) -> list[Model]:
+    """Keep only the models matching *content*.
+
+    content:
+      "standard"   -> safety-tuned / vendor models only (the default)
+      "uncensored" -> uncensored builds only
+      "all"        -> everything
+    """
+    if content == "all":
+        return list(items)
+    if content == "uncensored":
+        return [m for m in items if m.is_uncensored]
+    return [m for m in items if not m.is_uncensored]
 
 
 def usable_memory(hw: Hardware) -> tuple[int, int]:

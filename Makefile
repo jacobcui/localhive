@@ -26,6 +26,22 @@ STAMP       := $(VENV)/.localhive-installed
 #   make list-models CONTEXT=32768
 CONTEXT     ?= 8192
 
+# Content filter. Standard (safety-tuned / vendor) models are the default.
+#   make list-models uncensored=yes     uncensored builds only
+#   make list-models all=yes            both together
+uncensored  ?= no
+all         ?= no
+
+ifeq ($(uncensored),yes)
+CONTENT_FLAG := --uncensored
+else ifeq ($(all),yes)
+CONTENT_FLAG := --all-content
+else ifeq ($(uncensored),no)
+CONTENT_FLAG :=
+else
+$(error unknown uncensored=$(uncensored) - use uncensored=yes or all=yes)
+endif
+
 .DEFAULT_GOAL := help
 .PHONY: help install deps llama link unlink check list-models list install-model \
         installed serve hardware where clean-venv doctor test reinstall
@@ -40,6 +56,7 @@ help: ## Show this help
 	@echo ""
 	@echo "  MODELS_DIR = $(MODELS_DIR)"
 	@echo "  CONTEXT    = $(CONTEXT)"
+	@echo "  content    = $(if $(CONTENT_FLAG),$(CONTENT_FLAG),standard models only (default))"
 	@echo ""
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -48,6 +65,7 @@ help: ## Show this help
 	@echo "Typical flow:"
 	@echo "  make install              # once: llama.cpp + venv + PATH"
 	@echo "  make list-models          # see what this box can run"
+	@echo "  make list-models uncensored=yes   # uncensored builds only"
 	@echo "  make install-model MODEL=qwen3.6-35b-a3b-iq2m"
 	@echo "  make serve MODEL=qwen3.6-35b-a3b-iq2m"
 
@@ -97,8 +115,8 @@ test: $(STAMP) ## Run the test suite
 # ---------------------------------------------------------------------------
 # the two important targets
 # ---------------------------------------------------------------------------
-list-models: $(STAMP) ## List models that fit this machine
-	@$(LOCALHIVE) list-models --context $(CONTEXT) $(ARGS)
+list-models: $(STAMP) ## List models that fit this machine [uncensored=yes|all=yes]
+	@$(LOCALHIVE) list-models --context $(CONTEXT) $(CONTENT_FLAG) $(ARGS)
 
 list: list-models ## Alias for list-models
 
@@ -106,7 +124,7 @@ install-model: $(STAMP) ## Install a model (MODEL=<name from list-models>)
 ifndef MODEL
 	$(error MODEL is not set. Run 'make list-models', then 'make install-model MODEL=<name>')
 endif
-	@$(LOCALHIVE) --dir "$(MODELS_DIR)" install-model "$(MODEL)" --context $(CONTEXT) $(ARGS)
+	@$(LOCALHIVE) --dir "$(MODELS_DIR)" install-model "$(MODEL)" --context $(CONTEXT) $(CONTENT_FLAG) $(ARGS)
 
 installed: $(STAMP) ## Show models already installed
 	@$(LOCALHIVE) --dir "$(MODELS_DIR)" list-installed

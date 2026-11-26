@@ -14,7 +14,7 @@ genuinely run.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platform-WSL2%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#requirements)
-[![Tests](https://img.shields.io/badge/tests-27%20passing-brightgreen.svg)](tests/test_fit.py)
+[![Tests](https://img.shields.io/badge/tests-43%20passing-brightgreen.svg)](tests/test_fit.py)
 
 <img src="docs/list-models.svg" alt="make list-models output showing only models that fit this machine" width="840">
 
@@ -74,18 +74,25 @@ $ make list-models
 
   Budget   : 24.0 GiB usable RAM, CPU only  (planning context 8,192)
 
+  Showing  : standard models (64 hidden by content filter)
+
         MODEL                          SIZE  VERDICT       CTX  DETAIL
   ------------------------------------------------------------------------------------------------
-  [cc]  gemma4-31b-q4km             17.40G  CPU        8,192  runs on CPU comfortably | vision+MTP
-  [cc]  qwen3.6-35b-a3b-iq2m        10.86G  CPU        8,192  runs on CPU comfortably | vision+MoE
-  [cc]  gemma4-12b-q4km              6.87G  CPU        8,192  runs on CPU comfortably | vision+MTP
-  [cc]  qwen3.5-2b-q4km              1.18G  CPU        8,192  runs on CPU comfortably | vision
+  [cc]  gemma-2-9b-iq2xs             2.86G  CPU         8,192  runs on CPU comfortably
+  [cc]  llama-3.1-8b-iq2m            2.75G  CPU         8,192  runs on CPU comfortably
+  [cc]  qwen2.5-coder-7b-iq2m        2.59G  CPU         8,192  runs on CPU comfortably
+  [cc]  qwen2.5-7b-iq2m              2.59G  CPU         8,192  runs on CPU comfortably
+  [cc]  qwen3-8b-iq1s                2.12G  CPU         8,192  runs on CPU comfortably
+  [cc]  mistral-7b-iq1s              1.50G  CPU         8,192  runs on CPU comfortably
+  [cc]  llama-3.2-3b-iq3m            1.49G  CPU         8,192  runs on CPU comfortably
 
-  58 of 64 catalog builds fit at 8,192 context.
-  Largest hidden (too big): qwen3.6-35b-a3b-q8kp - exceeds usable RAM
+  164 of 231 catalog builds fit at 8,192 context.
+  Showing the best fit per family (7 rows).
 ```
 
 One row per family by default — the **best** quant that fits, not the biggest.
+The header always states which content filter is in effect and how many
+models it hid, so you are never left wondering where something went.
 
 <details>
 <summary><b>Verdicts, and what they mean</b></summary>
@@ -109,6 +116,8 @@ One row per family by default — the **best** quant that fits, not the biggest.
 | `ARGS=--verbose` | every quant, not just the best per family |
 | `ARGS=--all` | include models that do **not** fit, so you can see why |
 | `ARGS=--json` | machine-readable, for scripting |
+| `uncensored=yes` | show uncensored builds instead of standard models |
+| `all=yes` | show both standard and uncensored together |
 
 ```bash
 make list-models CONTEXT=32768              # "I want long context"
@@ -205,18 +214,57 @@ Then `wsl --shutdown` from PowerShell and reopen. Re-run `make list-models`.
 
 ## Model catalog
 
-> **The catalog is currently 100% uncensored models from a single publisher**
-> ([HauhauCS](https://huggingface.co/HauhauCS)): 64 quantisations across 11
-> families, from a 2B that runs on anything to a 35B MoE. There are no
-> gated, safety-tuned, or vendor-official models in it.
->
-> That is a deliberate curation choice, not a technical limit — `localhive`
-> does not care what a model says. If you want a different publisher, see
-> [Adding your own models](#adding-your-own-models) below; it is one line.
+**Standard models by default. Uncensored builds are opt-in.**
 
-If you are here for the *sizing* logic rather than the model list, jump to
-[How "does it fit" is decided](#how-does-it-fit-is-decided) — that part is
-publisher-agnostic.
+`make list-models` shows normal, safety-tuned and vendor models — Llama,
+Qwen, Mistral, Gemma, Qwen-Coder — across 7 families and 4 publishers. If
+you just want "a model that runs", that is what you get with no flags.
+
+Uncensored community fine-tunes are one flag away and never appear by
+accident:
+
+```bash
+make list-models                     # standard models (the default)
+make list-models uncensored=yes      # uncensored builds only
+make list-models all=yes             # both together
+
+make install-model MODEL=qwen3.6-35b-a3b-iq2m uncensored=yes
+```
+
+If you try to install an uncensored model without the flag, it is not
+silently allowed — you get told exactly what to do:
+
+```console
+$ make install-model MODEL=qwen3.6-35b-a3b-iq2m
+error: no model matches 'qwen3.6-35b-a3b-iq2m'.
+       'qwen3.6-35b-a3b-iq2m' is an uncensored model. Re-run with --uncensored to use it.
+```
+
+<details>
+<summary><b>How content is classified</b></summary>
+
+Every catalog entry declares its type in a `content` field — it is **not**
+sniffed from the filename. Filename heuristics break the moment a publisher
+names something unusually, and silently mislabelling a model is worse than
+not labelling it at all.
+
+A test asserts that any model whose filename says "uncensored" is labelled
+as such, so the two cannot drift apart.
+
+</details>
+
+<details>
+<summary><b>What's in each view</b></summary>
+
+| View | Families | Examples |
+| --- | --- | --- |
+| Standard (default) | 7 | Llama-3.2-3B, Llama-3.1-8B, Qwen2.5-7B, Qwen2.5-Coder-7B, Qwen3-8B, Mistral-7B, Gemma-2-9B |
+| Uncensored (`uncensored=yes`) | 11 | Qwen3.6-35B-A3B, Qwen3.8-27B, Gemma4-31B, … |
+
+Roughly 231 quants in total, and every one carries an exact byte size read
+from the HuggingFace API.
+
+</details>
 
 | | |
 | --- | --- |
@@ -229,8 +277,9 @@ publisher-agnostic.
 It's a 35B **Mixture-of-Experts** model (~3B active per token), which is why it
 stays usable even on CPU. `list-models` marks these `MoE`.
 
-> **Note:** the catalog is a curated list, not a search engine. It contains one
-> publisher's builds by default. Adding another is a single dict entry — see below.
+> **Note:** the catalog is a curated list, not a search engine. It covers
+> well-known publishers (bartowski, unsloth, and HauhauCS), not all of
+> HuggingFace. Adding another is a single entry — see below.
 
 ### Adding your own models
 

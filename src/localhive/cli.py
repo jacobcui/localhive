@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import sys
 import time
 import urllib.error
@@ -90,21 +91,47 @@ def self_command(subcommand: str) -> str:
     return f"localhive {subcommand}"
 
 
-def resolve(name: str) -> Model:
-    """Map whatever the user typed onto a catalog entry."""
+def content_scope(args: argparse.Namespace) -> str:
+    """Which content types this invocation is allowed to see.
+
+    Standard models are the default. Uncensored builds require an explicit
+    opt-in so they are never something you get by accident.
+    """
+    if getattr(args, "all_content", False):
+        return "all"
+    if getattr(args, "uncensored", False):
+        return "uncensored"
+    return models.DEFAULT_CONTENT
+
+
+def resolve(name: str, scope: str = "standard") -> Model:
+    """Map whatever the user typed onto a catalog entry.
+
+    *scope* limits which entries are visible, so an uncensored model cannot
+    be selected unless the caller asked for uncensored models.
+    """
+    visible = models.filter_by_content(catalog.CATALOG, scope)
+    hidden = [m for m in catalog.CATALOG if m not in visible]
     want = name.strip()
-    aliases = catalog.aliases()
-
-    if want in aliases:
-        return catalog.BY_KEY[aliases[want]]
-
     low = want.lower()
-    for m in catalog.CATALOG:
+
+    def hidden_hint() -> str:
+        """If the name only matches a filtered-out model, say so plainly."""
+        for m in hidden:
+            if low in (m.key.lower(), m.filename.lower(), m.filename[:-5].lower()):
+                return (
+                    f"\n       '{m.key}' is an uncensored model. "
+                    f"Re-run with --uncensored to use it."
+                )
+        return ""
+
+    # exact matches first
+    for m in visible:
         if low in (m.filename.lower(), m.filename[:-5].lower(), m.key.lower()):
             return m
 
     hits = [
-        m for m in catalog.CATALOG
+        m for m in visible
         if low in m.key.lower()
         or low in m.filename.lower()
         or low in m.family.lower()
@@ -116,6 +143,7 @@ def resolve(name: str) -> Model:
         raise SystemExit(
             f"error: no model matches {name!r}.\n"
             f"       run '{self_command('list-models')}' to see what is available."
+            + hidden_hint()
         )
 
     hits.sort(key=lambda m: m.size_bytes)
@@ -134,10 +162,13 @@ def cmd_list_models(args: argparse.Namespace) -> int:
     context = args.context
 
     if args.json:
-        scored = [(m, models.evaluate(m, hw, context)) for m in catalog.CATALOG]
+        scope = content_scope(args)
+        pool = models.filter_by_content(catalog.CATALOG, scope)
+        scored = [(m, models.evaluate(m, hw, context)) for m in pool]
         fits = [(m, f) for m, f in scored if f.runnable]
         payload = {
             "context": context,
+            "content_filter": scope,
             "hardware": hardware.to_dict(hw),
             "models": [
                 {
@@ -150,6 +181,7 @@ def cmd_list_models(args: argparse.Namespace) -> int:
                     "size_gib": round(m.size_gib, 2),
                     "multimodal": m.multimodal,
                     "mixture_of_experts": m.notes == "moe",
+                    "content": m.content,
                     "fit": {
                         "verdict": f.verdict,
                         "runnable": f.runnable,
@@ -184,11 +216,26 @@ def cmd_list_models(args: argparse.Namespace) -> int:
     )
     print()
 
-    scored = [(m, models.evaluate(m, hw, context)) for m in catalog.CATALOG]
+    scope = content_scope(args)
+    pool = models.filter_by_content(catalog.CATALOG, scope)
+
+    scored = [(m, models.evaluate(m, hw, context)) for m in pool]
     fits = [(m, f) for m, f in scored if f.runnable]
     hidden = [(m, f) for m, f in scored if not f.runnable]
 
     shown = list(scored) if args.all else list(fits)
+
+    # Tell the user what they are looking at, and what they are not.
+    scope_note = {
+        "standard": "standard models",
+        "uncensored": "uncensored models",
+        "all": "all models",
+    }[scope]
+    other = len(catalog.CATALOG) - len(pool)
+    if other:
+        scope_note += f" ({other} hidden by content filter)"
+    print(dim(f"  Showing  : {scope_note}"))
+    print()
 
     if not args.all and not args.verbose:
         by_family: dict[str, tuple[Model, models.Fit]] = {}
@@ -244,17 +291,59 @@ def cmd_list_models(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _download(url: str, dest: Path, label: str) -> None:
+    """Download *url* to *dest*, resuming a previous partial file if present.
+
+    Model files are multi-gigabyte, so restarting from zero after an
+    interruption is expensive. If a .part file exists we ask the server for
+    the remainder with a Range request and append to it.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
 
-    req = urllib.request.Request(url, headers={"User-Agent": "localhive/0.1"})
+    resume_from = tmp.stat().st_size if tmp.exists() else 0
+
+    headers = {"User-Agent": "localhive/0.1"}
+    if resume_from:
+        headers["Range"] = f"bytes={resume_from}-"
+
+    req = urllib.request.Request(url, headers=headers)
+
+    # A signal (timeout, kill) must not leave a half-written .part behind,
+    # but a Ctrl-C should also keep what we got so the next run can resume.
+    def _cleanup(signum, frame):
+        raise KeyboardInterrupt
+
+    previous = {}
+    for sig in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, sig):
+            try:
+                previous[sig] = signal.signal(getattr(signal, sig), _cleanup)
+            except (ValueError, OSError):
+                pass
+
     try:
         with urllib.request.urlopen(req) as resp:
+            status = getattr(resp, "status", 200)
             total = int(resp.headers.get("Content-Length") or 0)
-            done = 0
+
+            if resume_from and status == 206:
+                # Server honoured the range: total is the remaining bytes.
+                total += resume_from
+                done = resume_from
+                mode = "ab"
+                if resume_from:
+                    print(dim(f"  Resuming from {human(resume_from)}"))
+            else:
+                # 200 means the server ignored Range; start over cleanly.
+                if resume_from:
+                    print(dim("  Server does not support resume; starting over"))
+                resume_from = 0
+                done = 0
+                mode = "wb"
+
             start = time.time()
             last = 0.0
-            with open(tmp, "wb") as fh:
+            with open(tmp, mode) as fh:
                 while True:
                     chunk = resp.read(1024 * 256)
                     if not chunk:
@@ -280,25 +369,38 @@ def _download(url: str, dest: Path, label: str) -> None:
                         sys.stderr.flush()
         sys.stderr.write("\n")
     except urllib.error.HTTPError as exc:
-        tmp.unlink(missing_ok=True)
+        # A 416 means our .part is already complete or larger than the file;
+        # drop it so the retry starts clean.
+        if exc.code == 416:
+            tmp.unlink(missing_ok=True)
         raise SystemExit(
             f"error: download failed for {url}\n"
             f"       HTTP {exc.code} {exc.reason}\n"
             f"       Check the repo is public and the filename still exists."
         ) from exc
     except urllib.error.URLError as exc:
-        tmp.unlink(missing_ok=True)
         raise SystemExit(f"error: cannot reach huggingface.co: {exc.reason}") from exc
     except KeyboardInterrupt:
-        tmp.unlink(missing_ok=True)
-        print("\ninterrupted - partial download removed", file=sys.stderr)
+        # Keep the .part so the next run resumes instead of starting over.
+        size = tmp.stat().st_size if tmp.exists() else 0
+        print(
+            f"\ninterrupted - kept {human(size)} in {tmp.name}\n"
+            f"       re-run the same command to resume",
+            file=sys.stderr,
+        )
         raise SystemExit(130)
+    finally:
+        for sig, handler in previous.items():
+            try:
+                signal.signal(getattr(signal, sig), handler)
+            except (ValueError, OSError):
+                pass
 
     tmp.replace(dest)
 
 
 def cmd_install_model(args: argparse.Namespace) -> int:
-    model = resolve(args.model)
+    model = resolve(args.model, content_scope(args))
     hw = hardware.detect()
     fit = models.evaluate(model, hw, args.context)
     dest_dir = Path(args.dir).expanduser()
@@ -412,7 +514,7 @@ def cmd_list_installed(args: argparse.Namespace) -> int:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     dest_dir = Path(args.dir).expanduser()
-    model = resolve(args.model)
+    model = resolve(args.model, "all")
     path = dest_dir / model.filename
     if not path.exists():
         raise SystemExit(
@@ -502,6 +604,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="show every quant, not just the best per family")
     lm.add_argument("--json", action="store_true",
                     help="machine-readable output for scripting")
+    lm.add_argument("--uncensored", action="store_true",
+                    help="show uncensored community fine-tunes only "
+                         "(default: standard models only)")
+    lm.add_argument("--all-content", dest="all_content", action="store_true",
+                    help="show standard and uncensored together")
     lm.set_defaults(func=cmd_list_models)
 
     im = sub.add_parser("install-model", aliases=["install"],
@@ -511,6 +618,8 @@ def build_parser() -> argparse.ArgumentParser:
     im.add_argument("--force", action="store_true", help="re-download / ignore fit check")
     im.add_argument("--no-mmproj", dest="no_mmproj", action="store_true",
                     help="skip the vision projector")
+    im.add_argument("--uncensored", action="store_true",
+                    help="allow installing an uncensored model")
     im.set_defaults(func=cmd_install_model)
 
     li = sub.add_parser("list-installed", aliases=["installed"],
