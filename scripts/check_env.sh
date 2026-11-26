@@ -2,6 +2,9 @@
 # Verify that this machine can actually run localhive end to end.
 set -uo pipefail
 
+# shellcheck source=lib_distro.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib_distro.sh"
+
 ok()   { printf '  \033[32m[ok]\033[0m   %s\n' "$*"; }
 bad()  { printf '  \033[31m[FAIL]\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m[warn]\033[0m %s\n' "$*"; }
@@ -9,6 +12,9 @@ warn() { printf '  \033[33m[warn]\033[0m %s\n' "$*"; }
 status=0
 
 echo "localhive environment check"
+printf '  platform : %s (%s)' "$(lh_pretty_name)" "$(lh_distro_id)"
+if lh_is_wsl; then printf ' [WSL2]'; fi
+echo
 echo
 
 # --- python ---------------------------------------------------------------
@@ -64,9 +70,9 @@ if [ -f ".venv/bin/python" ]; then
   if [ -x ".venv/bin/pip" ]; then
     ok "  pip present"
   else
-    bad "  venv has no pip (common on Debian/Ubuntu without python3-venv)"
-    echo "         fix: sudo apt install -y python3-venv python3-pip"
-    echo "         then: rm -rf .venv && make"
+    bad "  venv has no pip (the venv module is likely missing)"
+    echo "         fix:"
+    lh_hint_block python_venv "then: rm -rf .venv && make"
     status=1
   fi
   if .venv/bin/python -c "import localhive" 2>/dev/null; then
@@ -82,7 +88,8 @@ if python3 -c "import ensurepip" 2>/dev/null; then
   ok "ensurepip available"
 else
   warn "ensurepip NOT available - venvs will be created without pip"
-  echo "         fix: sudo apt install -y python3-venv python3-pip"
+  echo "         fix:"
+  lh_hint_block python_venv
 fi
 
 echo

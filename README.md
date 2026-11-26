@@ -14,7 +14,7 @@ genuinely run.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platform-WSL2%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#requirements)
-[![Tests](https://img.shields.io/badge/tests-63%20passing-brightgreen.svg)](tests/test_fit.py)
+[![Tests](https://img.shields.io/badge/tests-90%20passing-brightgreen.svg)](tests/test_fit.py)
 
 <img src="docs/list-models.svg" alt="make list-models output showing only models that fit this machine" width="840">
 
@@ -54,15 +54,20 @@ Then point any OpenAI client at `http://127.0.0.1:7000/v1`.
 * **llama.cpp** — `make install` fetches it (Homebrew on macOS, prebuilt
   release or source build on Linux/WSL2)
 * **Disk** — models land in `~/.localhive/models`; a single quant is 1–40 GB
-* **OS** — WSL2 Ubuntu, native Linux, or macOS (Apple Silicon or Intel)
+* **OS** — WSL2, or native Linux, or macOS (Apple Silicon or Intel)
 
-> **WSL2 / Debian note:** `python3 -m venv` can create a venv **without pip**
-> when `python3-venv` is not installed. `make` detects this, recreates the
-> venv and bootstraps pip automatically. If pip still cannot be bootstrapped:
+> **Missing pip?** `python3 -m venv` can create a venv **without pip** when
+> the venv module is absent — common on a fresh WSL2 or minimal cloud image.
+> `make` detects this, recreates the venv and bootstraps pip automatically.
+> If pip still cannot be bootstrapped, the error names the exact command for
+> **your** distribution:
 >
-> ```bash
-> sudo apt update && sudo apt install -y python3-venv python3-pip
-> rm -rf .venv && make
+> ```console
+> $ make
+> error: could not create a virtualenv on Fedora Linux 40.
+>        This usually means the venv module (ensurepip) is missing:
+>            sudo dnf install -y python3-pip
+>        Then re-run 'make'.
 > ```
 >
 > `make check` diagnoses the environment, and `make doctor-deps` repairs a
@@ -200,6 +205,28 @@ with a machine that swaps the moment you paste in a long prompt.
 </details>
 
 ---
+
+## Platform support
+
+The install scripts detect your distribution and give the right package
+command for it — no assuming `apt`.
+
+| Family | Package manager | Detected via |
+| --- | --- | --- |
+| Debian, Ubuntu, Mint, Pop, Kali, Raspberry Pi OS | `apt` | `ID` / `ID_LIKE` |
+| Fedora, Nobara, Bazzite | `dnf` | `ID` / `ID_LIKE` |
+| RHEL, Rocky, AlmaLinux, Amazon Linux | `dnf` or `yum` | `ID` / `ID_LIKE` |
+| Arch, Manjaro, EndeavourOS, CachyOS | `pacman` | `ID` / `ID_LIKE` |
+| openSUSE Leap / Tumbleweed | `zypper` | `ID` / `ID_LIKE` |
+| Alpine | `apk` | `ID` |
+| macOS | `brew` / `xcode-select` | `uname` |
+
+**Alpine is handled specially.** It uses musl rather than glibc, so
+llama.cpp's prebuilt release tarballs will not run. `make install` detects
+this and builds from source instead of handing you a binary that crashes.
+
+Unknown distributions still get a useful message naming the capability
+needed, rather than a command for the wrong package manager.
 
 ## WSL2 notes
 

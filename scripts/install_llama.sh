@@ -17,9 +17,9 @@ die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-is_wsl() {
-  grep -qi microsoft /proc/version 2>/dev/null || [ -n "${WSL_DISTRO_NAME:-}" ]
-}
+# shellcheck source=lib_distro.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib_distro.sh"
+is_wsl() { lh_is_wsl; }
 
 # --- already good? ---------------------------------------------------------
 if have llama-server; then
@@ -59,19 +59,55 @@ if have nvidia-smi && nvidia-smi >/dev/null 2>&1; then
   GPU_KIND="cuda"
 fi
 
-# Detect the Ubuntu codename for the release asset (fall back to ubuntu-22.04).
+# llama.cpp publishes prebuilt Linux tarballs linked against a specific
+# Ubuntu release. They generally run on any glibc distro new enough to
+# satisfy the link, so we pick the *oldest* ABI that still works rather than
+# guessing, and fall back to a source build when the distro is clearly not
+# glibc-compatible.
 CODENAME=""
-if [ -r /etc/os-release ]; then
-  # shellcheck disable=SC1091
-  . /etc/os-release
-  case "${UBUNTU_CODENAME:-}" in
-    22.04|jammy)    CODENAME="ubuntu-22.04" ;;
-    24.04|noble)    CODENAME="ubuntu-24.04" ;;
-    26.04|resolute) CODENAME="ubuntu-24.04" ;;  # 26.04 ships the 24.04 ABI
-    *)              CODENAME="ubuntu-22.04" ;;
-  esac
-fi
-[ -n "$CODENAME" ] || CODENAME="ubuntu-22.04"
+DISTRO="$(lh_distro_id)"
+
+case "$DISTRO" in
+  debian)
+    # Prefer the distro's own codename when llama.cpp ships a matching build.
+    if [ -r "$LOCALHIVE_OS_RELEASE" ]; then
+      # shellcheck disable=SC1091
+      . "$LOCALHIVE_OS_RELEASE"
+      case "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}" in
+        22.04|jammy)    CODENAME="ubuntu-22.04" ;;
+        24.04|noble)    CODENAME="ubuntu-24.04" ;;
+        26.04|resolute) CODENAME="ubuntu-24.04" ;;  # 26.04 keeps the 24.04 ABI
+        *)              CODENAME="" ;;
+      esac
+    fi
+    # Debian proper, Mint, Pop, Kali etc. are not Ubuntu; the 22.04 build is
+    # the safest glibc floor and is what upstream effectively targets.
+    [ -n "$CODENAME" ] || CODENAME="ubuntu-22.04"
+    ;;
+  fedora|rhel|suse|arch)
+    # glibc is new enough for the 24.04 build on all of these.
+    CODENAME="ubuntu-24.04"
+    say "note: $DISTRO is not Ubuntu; using the $CODENAME build (glibc-compatible)"
+    ;;
+  alpine)
+    # musl, not glibc: upstream tarballs will not run. Build from source.
+    warn "Alpine uses musl, so the prebuilt glibc tarballs will not run"
+    say "building from source instead"
+    bash "$(dirname "$0")/build_llama_from_source.sh"
+    exit $?
+    ;;
+  *)
+    warn "unrecognised Linux distribution: $(lh_pretty_name)"
+    if have ldd && ldd --version 2>&1 | grep -qi musl; then
+      say "musl libc detected; building from source"
+      bash "$(dirname "$0")/build_llama_from_source.sh"
+      exit $?
+    fi
+    CODENAME="ubuntu-22.04"
+    say "assuming glibc; trying the $CODENAME build"
+    ;;
+esac
+
 say "release flavour: $CODENAME / $GPU_KIND"
 
 DEST="${HOME}/.local/bin"

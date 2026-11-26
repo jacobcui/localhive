@@ -846,6 +846,180 @@ def test_bootstrap_missing_python_venv_explains_fix(tmp_path):
                           capture_output=True, text=True, timeout=120)
     assert proc.returncode != 0
     combined = proc.stdout + proc.stderr
-    assert "python3-venv" in combined, (
-        f"error should name the missing package.\n{combined}"
+    # The message must name a real remedy for the detected platform, and must
+    # not be a bare shell error. Which package manager appears depends on the
+    # host, so assert on the shape rather than on apt specifically.
+    assert "could not create a virtualenv" in combined, combined
+    assert any(pm in combined for pm in
+               ("apt install", "dnf install", "yum install", "pacman",
+                "zypper", "apk add", "brew install")), (
+        f"error should name a package manager command.\n{combined}"
     )
+
+
+def test_bootstrap_missing_python_venv_names_apt_on_debian(tmp_path):
+    """On Debian/Ubuntu the hint must be the apt command a user can paste."""
+    import subprocess
+
+    repo = os.path.join(os.path.dirname(__file__), "..")
+    work = tmp_path / "debian"
+    work.mkdir()
+    release = work / "os-release"
+    release.write_text('ID=ubuntu\nID_LIKE=debian\nPRETTY_NAME="Ubuntu"\n')
+
+    fake = work / "bin"
+    fake.mkdir()
+    stub = fake / "python3"
+    stub.write_text(
+        "#!/bin/bash\n"
+        'if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then\n'
+        '  echo "ensurepip is not available" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        f'exec "{sys.executable}" "$@"\n'
+    )
+    stub.chmod(0o755)
+
+    env = dict(os.environ, PATH=f"{fake}:{os.environ['PATH']}",
+               VENV=str(work / ".venv"),
+               LOCALHIVE_OS_RELEASE=str(release),
+               LOCALHIVE_FORCE_LINUX="1")
+    proc = subprocess.run(["bash", _bootstrap_script()], cwd=repo, env=env,
+                          capture_output=True, text=True, timeout=120)
+    combined = proc.stdout + proc.stderr
+    assert proc.returncode != 0
+    assert "apt" in combined and "python3-venv" in combined, combined
+
+# --- distro portability -----------------------------------------------------
+
+def _lib_distro():
+    return os.path.join(os.path.dirname(__file__), "..", "scripts", "lib_distro.sh")
+
+
+def _scripts_dir():
+    return os.path.join(os.path.dirname(__file__), "..", "scripts")
+
+
+def _detect_for(name, ident, id_like, tmp_path, expression="lh_distro_id"):
+    """Run a lib_distro function against a synthetic os-release.
+
+    Uses the library's own overrides rather than rewriting its source, and
+    puts the fixture in a directory whose name has no spaces - a space in
+    the path is exactly the kind of thing that used to break this.
+    """
+    import re
+    import subprocess
+
+    safe = re.sub(r"[^A-Za-z0-9]", "_", name)
+    work = tmp_path / safe
+    work.mkdir(parents=True, exist_ok=True)
+
+    release = work / "os-release"
+    release.write_text(
+        f'ID={ident}\nID_LIKE={id_like}\nPRETTY_NAME="{name}"\n'
+    )
+
+    env = dict(
+        os.environ,
+        LOCALHIVE_OS_RELEASE=str(release),
+        LOCALHIVE_FORCE_LINUX="1",   # skip the Darwin short-circuit
+    )
+    proc = subprocess.run(
+        ["bash", "-c", f'. "{_lib_distro()}"; {expression}'],
+        capture_output=True, text=True, env=env, timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.strip()
+
+
+def test_lib_distro_handles_paths_with_spaces(tmp_path):
+    """The library must survive a release path containing a space.
+
+    Regression: '[ -r /etc/os-release ]' was unquoted, so a path with a
+    space split into two words and detection silently returned 'unknown'.
+    """
+    work = tmp_path / "dir with spaces"
+    work.mkdir()
+    release = work / "os-release"
+    release.write_text('ID=ubuntu\nID_LIKE=\nPRETTY_NAME="Ubuntu"\n')
+
+    import subprocess
+    env = dict(os.environ, LOCALHIVE_OS_RELEASE=str(release),
+               LOCALHIVE_FORCE_LINUX="1")
+    proc = subprocess.run(
+        ["bash", "-c", f'. "{_lib_distro()}"; lh_distro_id'],
+        capture_output=True, text=True, env=env, timeout=30,
+    )
+    assert proc.stdout.strip() == "debian", (
+        f"space in path broke detection: {proc.stdout!r} {proc.stderr!r}"
+    )
+
+
+@pytest.mark.parametrize("name,ident,id_like,expected", [
+    ("Ubuntu",        "ubuntu",        "",        "debian"),
+    ("Debian",        "debian",        "",        "debian"),
+    ("Linux Mint",    "linuxmint",     "ubuntu",  "debian"),
+    ("Pop!_OS",       "pop",           "ubuntu",  "debian"),
+    ("Kali",          "kali",          "debian",  "debian"),
+    ("Fedora",        "fedora",        "",        "fedora"),
+    ("Nobara",        "nobara",        "fedora",  "fedora"),
+    ("RHEL",          "rhel",          "",        "rhel"),
+    ("Rocky",         "rocky",         "rhel",    "rhel"),
+    ("AlmaLinux",     "almalinux",     "rhel",    "rhel"),
+    ("Arch",          "arch",          "",        "arch"),
+    ("Manjaro",       "manjaro",       "arch",    "arch"),
+    ("EndeavourOS",   "endeavouros",   "arch",    "arch"),
+    ("openSUSE",      "opensuse-leap", "",        "suse"),
+    ("Alpine",        "alpine",        "",        "alpine"),
+    ("Void",          "void",          "",        "linux-unknown"),
+])
+def test_distro_detection(name, ident, id_like, expected, tmp_path):
+    assert _detect_for(name, ident, id_like, tmp_path) == expected
+
+
+@pytest.mark.parametrize("distro,expect_fragment", [
+    ("debian",   "apt install"),
+    ("fedora",   "dnf install"),
+    ("rhel",     "yum install"),
+    ("arch",     "pacman"),
+    ("suse",     "zypper"),
+    ("alpine",   "apk add"),
+])
+def test_install_hints_are_distro_appropriate(distro, expect_fragment, tmp_path):
+    """Every distro must get a command it can actually run."""
+    hint = _detect_for(distro, distro, "", tmp_path,
+                       "lh_install_hint python_venv")
+    assert expect_fragment in hint, f"{distro} got: {hint!r}"
+
+
+def test_no_hardcoded_apt_outside_the_library():
+    """apt must only appear in the distro library, never in callers."""
+    import glob
+    offenders = []
+    for path in glob.glob(os.path.join(_scripts_dir(), "*.sh")):
+        if path.endswith("lib_distro.sh"):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            for n, line in enumerate(fh, 1):
+                if "apt install" in line or "apt-get install" in line:
+                    offenders.append(f"{os.path.basename(path)}:{n}")
+    assert not offenders, f"hardcoded apt commands: {offenders}"
+
+
+def test_alpine_avoids_glibc_prebuilt():
+    """Alpine is musl; the ubuntu tarball would not run there."""
+    text = open(os.path.join(_scripts_dir(), "install_llama.sh"), encoding="utf-8").read()
+    assert "alpine" in text.lower()
+    assert "musl" in text.lower()
+
+
+def test_all_scripts_source_the_distro_library():
+    """Anything printing install advice must use the shared library."""
+    import glob
+    for path in glob.glob(os.path.join(_scripts_dir(), "*.sh")):
+        base = os.path.basename(path)
+        if base in ("lib_distro.sh", "link_cli.sh"):
+            continue
+        text = open(path, encoding="utf-8").read()
+        if "lh_install_hint" in text or "lh_hint_block" in text:
+            assert "lib_distro.sh" in text, f"{base} uses helpers but does not source them"

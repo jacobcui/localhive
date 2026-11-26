@@ -17,6 +17,9 @@
 # repairs or explains rather than proceeding into a confusing failure.
 set -euo pipefail
 
+# shellcheck source=lib_distro.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib_distro.sh"
+
 VENV="${VENV:-.venv}"
 STAMP="$VENV/.localhive-installed"
 PY="$VENV/bin/python"
@@ -33,7 +36,12 @@ if [ -z "$PYTHON_BIN" ]; then
     if command -v "$cand" >/dev/null 2>&1; then PYTHON_BIN="$cand"; break; fi
   done
 fi
-[ -n "$PYTHON_BIN" ] || die "no python3 found. Install it (e.g. sudo apt install python3 python3-venv)"
+if [ -z "$PYTHON_BIN" ]; then
+  printf '\033[31merror:\033[0m no python3 found on PATH.\n' >&2
+  printf '       Install Python 3.9+ and the venv module for %s:\n' "$(lh_pretty_name)" >&2
+  lh_hint_block python_venv
+  exit 1
+fi
 
 # ------------------------------------------------ sanity-check an existing venv
 venv_is_broken() {
@@ -46,7 +54,7 @@ venv_is_broken() {
 
 if [ -d "$VENV" ] && venv_is_broken; then
   if [ -x "$PY" ] && ! [ -x "$PIP" ]; then
-    warn "existing $VENV has no pip (common on Debian/Ubuntu images)"
+    warn "existing $VENV has no pip (common when python3-venv is missing)"
   else
     warn "existing $VENV looks broken; recreating it"
   fi
@@ -59,10 +67,10 @@ if [ ! -x "$PY" ]; then
   if ! "$PYTHON_BIN" -m venv "$VENV" 2>/tmp/localhive-venv-err.$$; then
     cat /tmp/localhive-venv-err.$$ >&2 || true
     rm -f /tmp/localhive-venv-err.$$
-    die "could not create a virtualenv.
-       On Debian/Ubuntu/WSL2 this usually means python3-venv is missing:
-           sudo apt update && sudo apt install -y python3-venv python3-pip
-       Then re-run 'make'."
+    printf '\033[31merror:\033[0m could not create a virtualenv on %s.\n' "$(lh_pretty_name)" >&2
+    printf '       This usually means the venv module (ensurepip) is missing:\n' >&2
+    lh_hint_block python_venv "Then re-run 'make'."
+    exit 1
   fi
   rm -f /tmp/localhive-venv-err.$$
 fi
@@ -90,10 +98,10 @@ if [ ! -x "$PIP" ]; then
 fi
 
 if ! "$PY" -m pip --version >/dev/null 2>&1; then
-  die "the virtualenv at $VENV has no working pip and it could not be bootstrapped.
-       Install it and re-run 'make':
-           sudo apt update && sudo apt install -y python3-venv python3-pip
-       Then:  rm -rf $VENV && make"
+  printf '\033[31merror:\033[0m %s has no working pip and it could not be bootstrapped.\n' "$VENV" >&2
+  printf '       Install the venv/pip packages for %s:\n' "$(lh_pretty_name)" >&2
+  lh_hint_block python_venv "Then:  rm -rf $VENV && make"
+  exit 1
 fi
 
 # ------------------------------------------------ install the package

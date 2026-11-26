@@ -8,10 +8,23 @@ die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# shellcheck source=lib_distro.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib_distro.sh"
+
 for tool in git cmake; do
-  have "$tool" || die "missing required tool: $tool"
+  if ! have "$tool"; then
+    printf '\033[31merror:\033[0m missing required tool: %s\n' "$tool" >&2
+    printf '       Install the build prerequisites for %s:\n' "$(lh_pretty_name)" >&2
+    lh_hint_block build_tools
+    exit 1
+  fi
 done
-have cc || have gcc || have clang || die "no C/C++ compiler found"
+
+if ! have cc && ! have gcc && ! have clang; then
+  printf '\033[31merror:\033[0m no C/C++ compiler found on %s\n' "$(lh_pretty_name)" >&2
+  lh_hint_block build_tools
+  exit 1
+fi
 
 BUILD_DIR="${TMPDIR:-/tmp}/llama.cpp-build"
 rm -rf "$BUILD_DIR"
