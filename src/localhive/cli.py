@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import catalog, hardware, models
+from . import catalog, hardware, models, servers
 from .models import Model
 
 DEFAULT_MODELS_DIR = Path.home() / ".localhive" / "models"
@@ -529,6 +529,26 @@ def cmd_serve(args: argparse.Namespace) -> int:
             "       run 'make install' in the localhive checkout."
         )
 
+    # Pre-flight: refuse to start on a busy port, and say what holds it.
+    # Without this, llama-server dies with a bare "couldn't bind HTTP server
+    # socket", which tells you nothing about what to do next.
+    if servers.port_in_use(args.port, args.host):
+        holder = servers.find_by_port(args.port) or next(
+            (s for s in servers.discover(range(args.port, args.port + 1), args.host)),
+            None,
+        )
+        print(red(f"  Port {args.port} is already in use."))
+        if holder is not None:
+            print(f"    pid {holder.pid}  {holder.model_file or holder.model_key}")
+            print(f"    {holder.url}")
+        print()
+        print(dim("  Either stop it:"))
+        print("    " + cyan(self_command(f"stop {args.port}")))
+        print(dim("  or serve this model on a different port:"))
+        print("    " + cyan(self_command(
+            f"serve {model.key} --port {args.port + 1}")))
+        return 1
+
     hw = hardware.detect()
     ctx = args.context or models.suggested_context(model, hw)
     fit = models.evaluate(model, hw, ctx)
@@ -558,9 +578,141 @@ def cmd_serve(args: argparse.Namespace) -> int:
     print()
     print(dim("  " + " ".join(cmd)))
     print()
+    print(dim(f"  Stop with: ") + cyan(self_command(f"stop {args.port}")))
+    print()
     sys.stdout.flush()
+
+    # Record the server before exec so 'ps' can find it. os.execv replaces
+    # this process, so the pid we write is the pid that keeps running.
+    servers.record(servers.Server(
+        pid=os.getpid(),
+        port=args.port,
+        host=args.host,
+        model_key=model.key,
+        model_file=model.filename,
+        context=ctx,
+        started_at=time.time(),
+    ))
     os.execv(server, cmd)
     return 0  # unreachable
+
+
+# ---------------------------------------------------------------------------
+# ps / stop
+# ---------------------------------------------------------------------------
+
+def _all_servers(args: argparse.Namespace,
+                 always_scan: bool = False) -> list[servers.Server]:
+    """Tracked servers, plus anything else listening in the scan range.
+
+    *always_scan* forces discovery. 'stop <port>' sets it, because a server
+    we never recorded is exactly the thing the user is trying to kill.
+    """
+    tracked = servers.running()
+    if getattr(args, "all", False) or always_scan:
+        seen = {s.port for s in tracked}
+        scan = getattr(args, "scan", None)
+        ports = range(scan[0], scan[1] + 1) if scan else None
+        for s in servers.discover(ports):
+            if s.port not in seen:
+                tracked.append(s)
+    return sorted(tracked, key=lambda s: s.port)
+
+
+def cmd_ps(args: argparse.Namespace) -> int:
+    found = _all_servers(args)
+
+    if args.json:
+        print(json.dumps([
+            {
+                "pid": s.pid, "port": s.port, "host": s.host,
+                "url": s.url, "model_key": s.model_key,
+                "model_file": s.model_file, "context": s.context,
+                "started_at": s.started_at,
+                "health": servers.health(s.port, s.host),
+                "alive": s.alive,
+            }
+            for s in found
+        ], indent=2))
+        return 0
+
+    print(bold("Running localhive servers"))
+    print()
+    if not found:
+        print(dim("  (none)"))
+        print()
+        print(dim("  Start one with: ") + cyan(
+            self_command("serve <model>")))
+        if not args.all:
+            print(dim("  Looking for servers started outside localhive? "
+                      "Try: ") + cyan(self_command("ps --all")))
+        return 0
+
+    print(bold(f"  {'PID':>7}  {'PORT':>5}  {'MODEL':<34} {'CTX':>7}  STATUS"))
+    print(dim("  " + "-" * 82))
+    for s in found:
+        status = servers.health(s.port, s.host)
+        if status == "ok":
+            shown = green("ready")
+        elif status:
+            shown = yellow(status)
+        else:
+            shown = red("no response")
+        label = s.model_key if s.model_key != "(untracked)" else s.model_file
+        if len(label) > 34:
+            label = label[:31] + "..."
+        print(f"  {s.pid:>7}  {s.port:>5}  {label:<34} "
+              f"{s.context or 0:>7,}  {shown}")
+    print()
+    print(dim("  Stop one:  ") + cyan(self_command("stop <port>"))
+          + dim("   or   ") + cyan(self_command("stop --all")))
+    if not args.all:
+        print(dim("  Servers started outside localhive are hidden - "
+                  "use ") + cyan("ps --all"))
+    return 0
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    found = _all_servers(args)
+
+    if args.all:
+        targets = found
+    elif args.port is not None:
+        if args.scan is None:
+            args.scan = (args.port, args.port)
+        targets = [
+            s for s in _all_servers(args, always_scan=True) if s.port == args.port
+        ]
+        if not targets:
+            print(yellow(f"  Nothing is listening on port {args.port}."))
+            print(dim(f"  Check what is running: ") + cyan(self_command("ps --all")))
+            return 1
+    else:
+        raise SystemExit(
+            "error: give a port or --all\n"
+            f"       e.g. {self_command('stop 7000')}  or  "
+            f"{self_command('stop --all')}"
+        )
+
+    if not targets:
+        print(dim("  No servers to stop."))
+        return 0
+
+    failed = 0
+    for srv in targets:
+        label = srv.model_key if srv.model_key != "(untracked)" else srv.model_file
+        if srv.pid <= 0:
+            print(yellow(f"  port {srv.port}: could not determine pid; "
+                         f"kill it manually"))
+            failed += 1
+            continue
+        ok = servers.stop(srv)
+        if ok:
+            print(green(f"  stopped") + f"  port {srv.port}  pid {srv.pid}  {dim(label)}")
+        else:
+            print(red(f"  failed to stop") + f"  port {srv.port}  pid {srv.pid}")
+            failed += 1
+    return 1 if failed else 0
 
 
 def cmd_where(args: argparse.Namespace) -> int:
@@ -633,6 +785,21 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--context", "-c", type=int, default=0,
                     help="context length (default: auto-fit)")
     sv.set_defaults(func=cmd_serve)
+
+    ps = sub.add_parser("ps", help="list running localhive servers")
+    ps.add_argument("--all", action="store_true",
+                    help="also find servers started outside localhive")
+    ps.add_argument("--scan", type=lambda s: tuple(int(x) for x in s.split("-")),
+                    metavar="LO-HI", help="port range to scan with --all")
+    ps.add_argument("--json", action="store_true")
+    ps.set_defaults(func=cmd_ps)
+
+    st = sub.add_parser("stop", help="stop a running server")
+    st.add_argument("port", nargs="?", type=int, help="port to stop")
+    st.add_argument("--all", action="store_true", help="stop every server")
+    st.add_argument("--scan", type=lambda s: tuple(int(x) for x in s.split("-")),
+                    metavar="LO-HI", help="port range to search")
+    st.set_defaults(func=cmd_stop)
 
     wh = sub.add_parser("where", help="print the models directory")
     wh.set_defaults(func=cmd_where)

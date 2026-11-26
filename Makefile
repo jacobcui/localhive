@@ -44,7 +44,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help install deps llama link unlink check list-models list install-model \
-        installed serve hardware where clean-venv doctor test reinstall
+        installed serve ps stop restart hardware where clean-venv doctor test reinstall
 
 # ---------------------------------------------------------------------------
 # help
@@ -68,6 +68,8 @@ help: ## Show this help
 	@echo "  make list-models uncensored=yes   # uncensored builds only"
 	@echo "  make install-model MODEL=qwen3.6-35b-a3b-iq2m"
 	@echo "  make serve MODEL=qwen3.6-35b-a3b-iq2m"
+	@echo "  make ps                   # what is running?"
+	@echo "  make stop all=yes         # stop everything"
 
 # ---------------------------------------------------------------------------
 # setup
@@ -134,6 +136,24 @@ ifndef MODEL
 	$(error MODEL is not set. Run 'make installed', then 'make serve MODEL=<name>')
 endif
 	@$(LOCALHIVE) --dir "$(MODELS_DIR)" serve "$(MODEL)" $(ARGS)
+
+ps: $(STAMP) ## List running servers (ps all=yes to include untracked)
+	@$(LOCALHIVE) ps $(if $(filter yes,$(all)),--all,) $(ARGS)
+
+stop: $(STAMP) ## Stop a server: make stop PORT=7000  |  make stop all=yes
+ifneq ($(filter yes,$(all)),)
+	@$(LOCALHIVE) stop --all
+else ifneq ($(PORT),)
+	@$(LOCALHIVE) stop $(PORT)
+else
+	$(error Give a port: 'make stop PORT=7000', or stop everything: 'make stop all=yes'. Run 'make ps' to see what is running)
+endif
+
+restart: stop ## Stop any server on PORT, then serve MODEL (PORT=, MODEL=)
+ifndef MODEL
+	$(error MODEL is not set. Run 'make list-models', then 'make restart MODEL=<name>')
+endif
+	@$(LOCALHIVE) --dir "$(MODELS_DIR)" serve "$(MODEL)" --port $(or $(PORT),7000) $(CONTENT_FLAG)
 
 hardware: $(STAMP) ## Show detected CPU / RAM / GPU
 	@$(LOCALHIVE) hardware $(ARGS)

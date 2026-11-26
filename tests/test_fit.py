@@ -550,3 +550,111 @@ def test_download_keeps_part_on_interrupt(tmp_path, monkeypatch):
         cli._download("https://example.invalid/o.gguf", tmp_path / "o.gguf", "test")
 
     assert (tmp_path / "o.gguf.part").exists(), "partial file was deleted; resume impossible"
+
+# --- server tracking --------------------------------------------------------
+
+def test_server_state_roundtrip(tmp_path, monkeypatch):
+    from localhive import servers as S
+
+    monkeypatch.setattr(S, "RUN_DIR", tmp_path)
+    monkeypatch.setattr(S, "_state_file", lambda p: tmp_path / f"{p}.json")
+    monkeypatch.setattr(S, "_pid_is_llama", lambda pid: True)
+
+    srv = S.Server(pid=os.getpid(), port=7000, host="127.0.0.1",
+                   model_key="k", model_file="f.gguf", context=8192,
+                   started_at=0.0)
+    S.record(srv)
+    got = S.running()
+    assert len(got) == 1
+    assert got[0].port == 7000
+    assert got[0].model_key == "k"
+
+    S.forget(7000)
+    assert S.running() == []
+
+
+def test_stale_records_are_pruned(tmp_path, monkeypatch):
+    """A record whose process died must not be reported as running."""
+    from localhive import servers as S
+
+    monkeypatch.setattr(S, "RUN_DIR", tmp_path)
+    monkeypatch.setattr(S, "_state_file", lambda p: tmp_path / f"{p}.json")
+    monkeypatch.setattr(S, "is_alive", lambda pid: False)
+    monkeypatch.setattr(S, "_pid_is_llama", lambda pid: True)
+
+    S.record(S.Server(pid=999999, port=7002, host="127.0.0.1",
+                      model_key="gone", model_file="g.gguf", context=0,
+                      started_at=0.0))
+    assert S.running() == []
+    # and the stale file is cleaned up
+    assert not (tmp_path / "7002.json").exists()
+
+
+def test_record_pid_reuse_is_not_reported(tmp_path, monkeypatch):
+    """If the pid now belongs to a non-llama process, treat it as gone."""
+    from localhive import servers as S
+
+    monkeypatch.setattr(S, "RUN_DIR", tmp_path)
+    monkeypatch.setattr(S, "_state_file", lambda p: tmp_path / f"{p}.json")
+    monkeypatch.setattr(S, "is_alive", lambda pid: True)
+    monkeypatch.setattr(S, "_pid_is_llama", lambda pid: False)
+
+    S.record(S.Server(pid=os.getpid(), port=7003, host="127.0.0.1",
+                      model_key="stale", model_file="s.gguf", context=0,
+                      started_at=0.0))
+    assert S.running() == []
+
+
+def test_corrupt_state_file_is_ignored(tmp_path, monkeypatch):
+    from localhive import servers as S
+
+    monkeypatch.setattr(S, "RUN_DIR", tmp_path)
+    monkeypatch.setattr(S, "_state_file", lambda p: tmp_path / f"{p}.json")
+    (tmp_path / "7004.json").write_text("{not json")
+    assert S.running() == []
+    assert not (tmp_path / "7004.json").exists()
+
+
+def test_port_in_use_detects_a_real_listener():
+    """Bind a socket, then confirm port_in_use sees it."""
+    import socket
+    from localhive import servers as S
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+        assert S.port_in_use(port) is True
+    # after close, it should be free again
+    assert S.port_in_use(port) is False
+
+
+def test_serve_refuses_busy_port(capsys):
+    """serve must not start on a port something already holds."""
+    import socket
+    from localhive import cli
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+        rc = cli.main(["serve", "llama-3.2-3b-iq3m", "--port", str(port)])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "already in use" in out.lower()
+    assert "stop" in out.lower(), "should tell the user how to free the port"
+
+
+def test_ps_and_stop_are_registered():
+    from localhive import cli
+    parser = cli.build_parser()
+    for cmd in ("ps", "stop"):
+        ns = parser.parse_args([cmd])
+        assert callable(ns.func)
+
+
+def test_stop_without_args_explains_itself():
+    from localhive import cli
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["stop"])
+    assert "port" in str(exc.value).lower()

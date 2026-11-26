@@ -14,7 +14,7 @@ genuinely run.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platform-WSL2%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#requirements)
-[![Tests](https://img.shields.io/badge/tests-43%20passing-brightgreen.svg)](tests/test_fit.py)
+[![Tests](https://img.shields.io/badge/tests-51%20passing-brightgreen.svg)](tests/test_fit.py)
 
 <img src="docs/list-models.svg" alt="make list-models output showing only models that fit this machine" width="840">
 
@@ -311,6 +311,10 @@ llama-server --model /path/to/anything.gguf --ctx-size 8192
 | `make list-models` | **models that fit this machine** |
 | `make install-model MODEL=X` | **download model X** |
 | `make serve MODEL=X` | run llama-server (OpenAI-compatible) |
+| `make ps` | list running servers |
+| `make stop PORT=7000` | stop one server |
+| `make stop all=yes` | stop every server |
+| `make restart MODEL=X` | stop whatever holds the port, then serve |
 | `make installed` | models already on disk |
 | `make hardware` | show detected CPU / RAM / GPU |
 | `make where` | print the models directory |
@@ -342,6 +346,68 @@ open a new shell, or call `.venv/bin/localhive` directly.
 
 Every "Next:" hint the tool prints names a command that **exists**, so they are
 always safe to copy-paste.
+
+</details>
+
+## Serving, and stopping what you started
+
+`serve` replaces itself with `llama-server`, so the server keeps running
+after the command returns. Forgetting about one and then hitting a cryptic
+bind error on the next run is easy:
+
+```console
+E srv start: couldn't bind HTTP server socket, hostname: 127.0.0.1, port: 7000
+```
+
+So there is a way to see and stop them:
+
+```bash
+make ps                  # what is running?
+make stop PORT=7000      # stop one
+make stop all=yes        # stop everything
+```
+
+```console
+$ make ps
+Running localhive servers
+
+      PID   PORT  MODEL                                  CTX  STATUS
+  ----------------------------------------------------------------------------------
+    10954   7000  llama-3.2-3b-iq3m                   32,768  ready
+    11016   7001  qwen2.5-7b-iq2m                     32,768  ready
+```
+
+You should not need either command to diagnose a failure, because `serve`
+now checks the port **before** starting and tells you exactly what to do:
+
+```console
+$ make serve MODEL=qwen2.5-7b-iq2m PORT=7000
+  Port 7000 is already in use.
+    pid 10954  Llama-3.2-3B-Instruct-IQ3_M.gguf
+    http://127.0.0.1:7000
+
+  Either stop it:
+    localhive stop 7000
+  or serve this model on a different port:
+    localhive serve qwen2.5-7b-iq2m --port 7001
+```
+
+<details>
+<summary><b>Servers started outside localhive</b></summary>
+
+`ps` only lists servers localhive started, because that is the only set it
+can describe accurately. To find a `llama-server` you launched by hand, or
+one started before this feature existed:
+
+```bash
+make ps all=yes               # probe ports 7000-7099
+localhive ps --all --scan 8000-8100
+```
+
+Discovery works by probing `/health` and reading `/v1/models`, so it will
+not mistake an unrelated service for a model server. Stopping is safe
+regardless: the pid is verified to actually be a `llama-server` before
+anything is signalled, so a recycled pid is never killed by mistake.
 
 </details>
 
