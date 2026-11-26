@@ -1,6 +1,8 @@
 <!-- Banner: keep the pitch under one line so it wraps cleanly in search results. -->
 <div align="center">
 
+<img src="docs/logo.svg" alt="localhive" width="112" height="112">
+
 # localhive
 
 **Stop guessing whether a model will fit in your RAM.**
@@ -298,6 +300,9 @@ scripts/
   build_llama_from_source.sh  fallback when no prebuilt release matches
 tools/
   build_catalog.py          regenerates catalog.py from the HF API
+docs/
+  logo.svg                  the mark (see docs/logo.md)
+  list-models.svg           the hero screenshot
 ```
 
 ## License

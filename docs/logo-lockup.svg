@@ -1,0 +1,30 @@
+<!--
+  localhive mark
+  A hexagonal memory budget filled with the models that fit it.
+
+  Geometry: pointy-top honeycomb. A 7-cell flower (1 centre + 6 ring) sits
+  inside a larger hexagon. The cell radius is 0.333 x the outer radius, which
+  is the largest flower that still fits within the outer hexagon's apothem,
+  so the honeycomb never crowds the border.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 240" width="760" height="240" role="img" aria-label="localhive - models that fit your machine">
+  <defs>
+    <linearGradient id="honey" x1="0.1" y1="0" x2="0.75" y2="1">
+      <stop offset="0%" stop-color="#fcd34d"/>
+      <stop offset="52%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(120,120) scale(0.86)">
+  <polygon points="0.00,-100.00 86.60,-50.00 86.60,50.00 0.00,100.00 -86.60,50.00 -86.60,-50.00" fill="#111827"/>
+  <polygon points="0.00,-25.77 22.32,-12.89 22.32,12.89 0.00,25.77 -22.32,12.89 -22.32,-12.89" fill="url(#honey)"/>
+  <polygon points="49.60,-25.77 71.92,-12.89 71.92,12.89 49.60,25.77 27.28,12.89 27.28,-12.89" fill="url(#honey)"/>
+  <polygon points="24.80,-68.73 47.12,-55.84 47.12,-30.07 24.80,-17.18 2.48,-30.07 2.48,-55.84" fill="url(#honey)"/>
+  <polygon points="-24.80,-68.73 -2.48,-55.84 -2.48,-30.07 -24.80,-17.18 -47.12,-30.07 -47.12,-55.84" fill="url(#honey)"/>
+  <polygon points="-49.60,-25.77 -27.28,-12.89 -27.28,12.89 -49.60,25.77 -71.92,12.89 -71.92,-12.89" fill="url(#honey)"/>
+  <polygon points="-24.80,17.18 -2.48,30.07 -2.48,55.84 -24.80,68.73 -47.12,55.84 -47.12,30.07" fill="url(#honey)"/>
+  <polygon points="24.80,17.18 47.12,30.07 47.12,55.84 24.80,68.73 2.48,55.84 2.48,30.07" fill="url(#honey)"/>
+  </g>
+  <text x="248" y="112" font-family="ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="62" font-weight="700" fill="#111827" letter-spacing="-1.5">localhive</text>
+  <text x="250" y="154" font-family="ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="23" font-weight="400" fill="#6b7280">models that fit your machine</text>
+</svg>
