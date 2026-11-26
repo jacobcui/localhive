@@ -759,3 +759,93 @@ def test_installed_listing_labels_content(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "uncensored" in out
     assert "standard" in out
+
+# --- virtualenv bootstrap ---------------------------------------------------
+
+def _bootstrap_script():
+    return os.path.join(os.path.dirname(__file__), "..", "scripts",
+                        "bootstrap_venv.sh")
+
+
+def test_bootstrap_script_is_valid_bash():
+    import subprocess
+    proc = subprocess.run(["bash", "-n", _bootstrap_script()],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_bootstrap_repairs_venv_without_pip(tmp_path):
+    """A venv missing pip must be repaired, not treated as healthy.
+
+    Regression: the Makefile guarded only on .venv/bin/python, so a venv
+    created on Debian/Ubuntu without python3-venv passed the check and then
+    failed with '.venv/bin/pip: No such file or directory'.
+    """
+    import shutil
+    import subprocess
+
+    repo = os.path.join(os.path.dirname(__file__), "..")
+    venv = tmp_path / ".venv"
+    # A venv with python but no pip.
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)],
+                   check=True, capture_output=True)
+    assert not (venv / "bin" / "pip").exists()
+
+    env = dict(os.environ, VENV=str(venv), PYTHON_BIN=sys.executable)
+    proc = subprocess.run(
+        ["bash", _bootstrap_script()],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=300,
+    )
+    assert (venv / "bin" / "pip").exists(), (
+        f"pip was not bootstrapped.\nstdout:{proc.stdout}\nstderr:{proc.stderr}"
+    )
+    assert (venv / "bin" / "localhive").exists(), "entry point missing"
+
+
+def test_bootstrap_is_idempotent(tmp_path):
+    """Running twice must not reinstall or fail."""
+    import subprocess
+
+    repo = os.path.join(os.path.dirname(__file__), "..")
+    venv = tmp_path / ".venv"
+    env = dict(os.environ, VENV=str(venv), PYTHON_BIN=sys.executable)
+
+    first = subprocess.run(["bash", _bootstrap_script()], cwd=repo, env=env,
+                           capture_output=True, text=True, timeout=300)
+    assert first.returncode == 0, first.stderr
+
+    second = subprocess.run(["bash", _bootstrap_script()], cwd=repo, env=env,
+                            capture_output=True, text=True, timeout=300)
+    assert second.returncode == 0, second.stderr
+    assert "installing python deps" not in second.stdout, (
+        "second run should be a no-op"
+    )
+
+
+def test_bootstrap_missing_python_venv_explains_fix(tmp_path):
+    """When 'python3 -m venv' fails, name the apt package needed."""
+    import subprocess
+
+    repo = os.path.join(os.path.dirname(__file__), "..")
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    stub = fake / "python3"
+    stub.write_text(
+        "#!/bin/bash\n"
+        'if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then\n'
+        '  echo "ensurepip is not available" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        f'exec "{sys.executable}" "$@"\n'
+    )
+    stub.chmod(0o755)
+
+    env = dict(os.environ, PATH=f"{fake}:{os.environ['PATH']}",
+               VENV=str(tmp_path / ".venv"))
+    proc = subprocess.run(["bash", _bootstrap_script()], cwd=repo, env=env,
+                          capture_output=True, text=True, timeout=120)
+    assert proc.returncode != 0
+    combined = proc.stdout + proc.stderr
+    assert "python3-venv" in combined, (
+        f"error should name the missing package.\n{combined}"
+    )

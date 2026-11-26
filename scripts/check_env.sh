@@ -61,12 +61,28 @@ fi
 
 if [ -f ".venv/bin/python" ]; then
   ok "venv present at .venv"
+  if [ -x ".venv/bin/pip" ]; then
+    ok "  pip present"
+  else
+    bad "  venv has no pip (common on Debian/Ubuntu without python3-venv)"
+    echo "         fix: sudo apt install -y python3-venv python3-pip"
+    echo "         then: rm -rf .venv && make"
+    status=1
+  fi
   if .venv/bin/python -c "import localhive" 2>/dev/null; then
     ok "  localhive importable in venv"
   else
     bad "  localhive missing from venv - run 'make deps'"
     status=1
   fi
+fi
+
+# python3-venv is what makes 'python3 -m venv' produce a usable venv.
+if python3 -c "import ensurepip" 2>/dev/null; then
+  ok "ensurepip available"
+else
+  warn "ensurepip NOT available - venvs will be created without pip"
+  echo "         fix: sudo apt install -y python3-venv python3-pip"
 fi
 
 echo

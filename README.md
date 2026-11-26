@@ -14,7 +14,7 @@ genuinely run.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platform-WSL2%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#requirements)
-[![Tests](https://img.shields.io/badge/tests-59%20passing-brightgreen.svg)](tests/test_fit.py)
+[![Tests](https://img.shields.io/badge/tests-63%20passing-brightgreen.svg)](tests/test_fit.py)
 
 <img src="docs/list-models.svg" alt="make list-models output showing only models that fit this machine" width="840">
 
@@ -55,6 +55,18 @@ Then point any OpenAI client at `http://127.0.0.1:7000/v1`.
   release or source build on Linux/WSL2)
 * **Disk** — models land in `~/.localhive/models`; a single quant is 1–40 GB
 * **OS** — WSL2 Ubuntu, native Linux, or macOS (Apple Silicon or Intel)
+
+> **WSL2 / Debian note:** `python3 -m venv` can create a venv **without pip**
+> when `python3-venv` is not installed. `make` detects this, recreates the
+> venv and bootstraps pip automatically. If pip still cannot be bootstrapped:
+>
+> ```bash
+> sudo apt update && sudo apt install -y python3-venv python3-pip
+> rm -rf .venv && make
+> ```
+>
+> `make check` diagnoses the environment, and `make doctor-deps` repairs a
+> broken venv in place.
 
 </details>
 

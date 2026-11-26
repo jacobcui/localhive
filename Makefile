@@ -44,7 +44,8 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help install deps llama link unlink check list-models list install-model \
-        installed serve ps stop restart hardware where clean-venv doctor test reinstall
+        installed serve ps stop restart hardware where clean-venv doctor doctor-deps \
+        test reinstall
 
 # ---------------------------------------------------------------------------
 # help
@@ -76,17 +77,18 @@ help: ## Show this help
 # ---------------------------------------------------------------------------
 # The venv and the install stamp are real files, so make can tell whether
 # the work is already done. Nothing here runs on a plain 'make list-models'.
+#
+# scripts/bootstrap_venv.sh does the work and verifies each step, because
+# 'python3 -m venv' can succeed on Debian/Ubuntu while producing a venv with
+# no pip at all (when python3-venv is missing). Guarding on the python
+# binary alone let that through and failed later with a confusing
+# ".venv/bin/pip: No such file or directory".
 $(VENV)/bin/python:
-	@echo "==> creating virtualenv at $(VENV)"
-	@python3 -m venv "$(VENV)"
+	@VENV="$(VENV)" PYTHON_BIN="$(PYTHON_BIN)" bash scripts/bootstrap_venv.sh
 
 # Re-runs only when pyproject.toml (or the venv itself) is newer than the stamp.
 $(STAMP): pyproject.toml $(VENV)/bin/python
-	@echo "==> installing python deps"
-	@"$(PIP)" install --quiet --upgrade pip
-	@"$(PIP)" install --quiet -e .
-	@touch "$(STAMP)"
-	@echo "==> done"
+	@VENV="$(VENV)" PYTHON_BIN="$(PYTHON_BIN)" bash scripts/bootstrap_venv.sh
 
 deps: $(STAMP) ## Install Python virtualenv + localhive into it (idempotent)
 
@@ -113,6 +115,9 @@ doctor: check ## Alias for check
 
 test: $(STAMP) ## Run the test suite
 	@$(PYTHON) -m pytest -q tests 2>/dev/null || $(PYTHON) tests/test_fit.py
+
+doctor-deps: ## Diagnose a broken virtualenv
+	@VENV="$(VENV)" PYTHON_BIN="$(PYTHON_BIN)" bash scripts/bootstrap_venv.sh
 
 # ---------------------------------------------------------------------------
 # the two important targets
