@@ -206,3 +206,47 @@ def test_next_hint_does_not_lie(capsys):
     clean = re.sub(r"\x1b\[[0-9;]*m", "", line[0])
     cmd = clean.split("Next:")[1].strip().split()[0]
     assert _shutil.which(cmd) or os.path.exists(cmd), f"bad hint: {cmd!r}"
+
+def test_list_models_json_is_valid(capsys):
+    """--json is documented in the README, so it has to actually work."""
+    import json as _json
+    from localhive import cli, catalog
+    rc = cli.main(["list-models", "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    data = _json.loads(out)
+    assert data["summary"]["total"] == len(catalog.CATALOG)
+    assert len(data["models"]) == len(catalog.CATALOG)
+    assert data["hardware"]["total_ram_bytes"] > 0
+    for m in data["models"]:
+        assert set(m["fit"]) >= {"verdict", "runnable", "reason"}
+
+
+def test_json_runnable_count_matches_verdicts(capsys):
+    import json as _json
+    from localhive import cli
+    cli.main(["list-models", "--json"])
+    data = _json.loads(capsys.readouterr().out)
+    flagged = sum(1 for m in data["models"] if m["fit"]["runnable"])
+    assert flagged == data["summary"]["runnable"]
+
+
+def test_readme_documents_only_real_flags():
+    """Every --flag the README shows for list-models must exist in the parser."""
+    import re
+    from localhive import cli
+    parser = cli.build_parser()
+    readme = os.path.join(os.path.dirname(__file__), "..", "README.md")
+    with open(readme, encoding="utf-8") as fh:
+        text = fh.read()
+    documented = set(re.findall(r"localhive list-models((?:\s+--[a-z-]+)+)", text))
+    flags = set()
+    for chunk in documented:
+        flags |= set(re.findall(r"--[a-z-]+", chunk))
+    # --context takes a value; the rest are store_true
+    known = {"--context", "--verbose", "--json", "--all", "-v", "-c"}
+    unknown = flags - known
+    assert not unknown, f"README documents flags that do not exist: {unknown}"
+    # and prove they parse
+    for f in sorted(flags - {"--context"}):
+        parser.parse_args(["list-models", f])

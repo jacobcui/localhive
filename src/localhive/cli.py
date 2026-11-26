@@ -133,6 +133,42 @@ def cmd_list_models(args: argparse.Namespace) -> int:
     hw = hardware.detect()
     context = args.context
 
+    if args.json:
+        scored = [(m, models.evaluate(m, hw, context)) for m in catalog.CATALOG]
+        fits = [(m, f) for m, f in scored if f.runnable]
+        payload = {
+            "context": context,
+            "hardware": hardware.to_dict(hw),
+            "models": [
+                {
+                    "key": m.key,
+                    "family": m.family,
+                    "quant": m.quant,
+                    "filename": m.filename,
+                    "repo": m.repo,
+                    "size_bytes": m.size_bytes,
+                    "size_gib": round(m.size_gib, 2),
+                    "multimodal": m.multimodal,
+                    "mixture_of_experts": m.notes == "moe",
+                    "fit": {
+                        "verdict": f.verdict,
+                        "runnable": f.runnable,
+                        "reason": f.reason,
+                        "required_bytes": f.required_bytes,
+                        "usable_bytes": f.usable_bytes,
+                        "gpu_layers": f.gpu_layers,
+                        "offload_ratio": round(f.offload_ratio, 3),
+                    },
+                }
+                for m, f in sorted(
+                    scored, key=lambda p: (models.VERDICT_ORDER[p[1].verdict], -p[0].size_bytes)
+                )
+            ],
+            "summary": {"total": len(scored), "runnable": len(fits)},
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
+
     print(bold("localhive - models that fit this machine"))
     print()
     print(hardware.summary(hw))
@@ -464,6 +500,8 @@ def build_parser() -> argparse.ArgumentParser:
     lm.add_argument("--all", action="store_true", help="also show models that do NOT fit")
     lm.add_argument("--verbose", "-v", action="store_true",
                     help="show every quant, not just the best per family")
+    lm.add_argument("--json", action="store_true",
+                    help="machine-readable output for scripting")
     lm.set_defaults(func=cmd_list_models)
 
     im = sub.add_parser("install-model", aliases=["install"],
