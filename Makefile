@@ -13,8 +13,14 @@ SHELL       := /bin/bash
 
 MODELS_DIR  ?= $(HOME)/.localhive/models
 VENV        ?= .venv
-PYTHON      ?= $(VENV)/bin/python
+PYTHON      := $(VENV)/bin/python
+PIP         := $(VENV)/bin/pip
 LOCALHIVE   := $(VENV)/bin/localhive
+
+# Stamp file: its timestamp records the last successful dependency install.
+# It only goes stale when pyproject.toml changes or the venv is removed,
+# so 'make list-models' does NOT re-run pip every time.
+STAMP       := $(VENV)/.localhive-installed
 
 # Context to plan for when deciding what fits. Override like:
 #   make list-models CONTEXT=32768
@@ -22,7 +28,7 @@ CONTEXT     ?= 8192
 
 .DEFAULT_GOAL := help
 .PHONY: help install deps llama check list-models list install-model installed \
-        serve hardware where clean-venv doctor test
+        serve hardware where clean-venv doctor test reinstall
 
 # ---------------------------------------------------------------------------
 # help
@@ -48,15 +54,25 @@ help: ## Show this help
 # ---------------------------------------------------------------------------
 # setup
 # ---------------------------------------------------------------------------
-deps: ## Install Python virtualenv + localhive into it
-	@if [ ! -d "$(VENV)" ]; then \
-		echo "==> creating virtualenv at $(VENV)"; \
-		python3 -m venv "$(VENV)"; \
-	fi
+# The venv and the install stamp are real files, so make can tell whether
+# the work is already done. Nothing here runs on a plain 'make list-models'.
+$(VENV)/bin/python:
+	@echo "==> creating virtualenv at $(VENV)"
+	@python3 -m venv "$(VENV)"
+
+# Re-runs only when pyproject.toml (or the venv itself) is newer than the stamp.
+$(STAMP): pyproject.toml $(VENV)/bin/python
 	@echo "==> installing python deps"
-	@"$(VENV)/bin/pip" install --quiet --upgrade pip
-	@"$(VENV)/bin/pip" install --quiet -e .
+	@"$(PIP)" install --quiet --upgrade pip
+	@"$(PIP)" install --quiet -e .
+	@touch "$(STAMP)"
 	@echo "==> done"
+
+deps: $(STAMP) ## Install Python virtualenv + localhive into it (idempotent)
+
+reinstall: ## Force a fresh dependency install
+	@rm -f "$(STAMP)"
+	@$(MAKE) --no-print-directory deps
 
 llama: ## Install llama.cpp (brew on macOS, prebuilt binary on Linux/WSL)
 	@bash scripts/install_llama.sh
@@ -68,33 +84,33 @@ check: ## Verify llama-server and localhive are usable
 
 doctor: check ## Alias for check
 
-test: ## Run the test suite
+test: $(STAMP) ## Run the test suite
 	@$(PYTHON) -m pytest -q tests 2>/dev/null || $(PYTHON) tests/test_fit.py
 
 # ---------------------------------------------------------------------------
 # the two important targets
 # ---------------------------------------------------------------------------
-list-models: deps ## List models that fit this machine
+list-models: $(STAMP) ## List models that fit this machine
 	@$(LOCALHIVE) list-models --context $(CONTEXT) $(ARGS)
 
 list: list-models ## Alias for list-models
 
-install-model: deps ## Install a model (MODEL=<name from list-models>)
+install-model: $(STAMP) ## Install a model (MODEL=<name from list-models>)
 ifndef MODEL
 	$(error MODEL is not set. Run 'make list-models', then 'make install-model MODEL=<name>')
 endif
 	@$(LOCALHIVE) --dir "$(MODELS_DIR)" install-model "$(MODEL)" --context $(CONTEXT) $(ARGS)
 
-installed: deps ## Show models already installed
+installed: $(STAMP) ## Show models already installed
 	@$(LOCALHIVE) --dir "$(MODELS_DIR)" list-installed
 
-serve: deps ## Serve an installed model (MODEL=<name>)
+serve: $(STAMP) ## Serve an installed model (MODEL=<name>)
 ifndef MODEL
 	$(error MODEL is not set. Run 'make installed', then 'make serve MODEL=<name>')
 endif
 	@$(LOCALHIVE) --dir "$(MODELS_DIR)" serve "$(MODEL)" $(ARGS)
 
-hardware: deps ## Show detected CPU / RAM / GPU
+hardware: $(STAMP) ## Show detected CPU / RAM / GPU
 	@$(LOCALHIVE) hardware $(ARGS)
 
 where: ## Print the models directory
