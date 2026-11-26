@@ -250,3 +250,23 @@ def test_readme_documents_only_real_flags():
     # and prove they parse
     for f in sorted(flags - {"--context"}):
         parser.parse_args(["list-models", f])
+
+def test_readme_test_badge_matches_reality():
+    """The tests badge must not claim a number we do not have."""
+    import re
+    import subprocess
+    readme = os.path.join(os.path.dirname(__file__), "..", "README.md")
+    with open(readme, encoding="utf-8") as fh:
+        m = re.search(r"badge/tests-(\d+)%20passing", fh.read())
+    assert m, "tests badge missing from README"
+    claimed = int(m.group(1))
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", os.path.dirname(__file__), "-q", "--collect-only"],
+        capture_output=True, text=True,
+    )
+    found = re.search(r"(\d+) tests? collected", proc.stdout)
+    assert found, proc.stdout[-500:]
+    assert claimed == int(found.group(1)), (
+        f"README badge claims {claimed} tests, pytest collects {found.group(1)}"
+    )
